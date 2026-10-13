@@ -6,7 +6,13 @@ Design spec: [docs/GAME-DESIGN.md](docs/GAME-DESIGN.md). Owner decisions: [docs/
 
 No framework, no bundler. One HTML page, a few ES modules, pixel-art sprites from Kenney's CC0 packs plus a few hand-pixeled ones, and a CC0 chiptune. Everything is free to use; sources are listed in [assets/LICENSES.md](assets/LICENSES.md).
 
-## Run
+## Play
+
+Live: **https://almost-there-delta.vercel.app** (works on phones; landscape is best, tap to jump, tap again mid-air to double jump).
+
+Source: https://github.com/Maxbase91/almost-there. Pushes to `main` auto-deploy to Vercel (project `almost-there`); `vercel.json` sets security headers, no-cache for the page and scripts, and a day of caching for assets.
+
+## Run locally
 
 ```bash
 npm run dev
