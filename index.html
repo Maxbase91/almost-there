@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Almost There</title>
+  <meta name="description" content="Carry a birthday cake 100 metres to the party. Almost nobody makes it." />
+  <meta name="theme-color" content="#1b1b2f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Almost There" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #2b2b3a;
+      --paper: #fff3dc;
+      --paper-dark: #e8c99a;
+      --wood: #b5703a;
+      --wood-dark: #6f3f1c;
+      --pink: #f4a0b5;
+      --red: #e5484d;
+      --gold: #ffd166;
+      --mint: #5fbf5a;
+      --sky: #5fb3ff;
+      --bg: #1b1b2f;
+      --px: 3px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+      font-family: "Press Start 2P", "Courier New", monospace; overflow: hidden;
+      -webkit-user-select: none; user-select: none; touch-action: manipulation;
+      image-rendering: pixelated;
+    }
+    #stage {
+      position: absolute; inset: 0; margin: auto;
+      width: 960px; height: 540px; max-width: 100vw; max-height: 100vh;
+      box-shadow: 0 0 0 var(--px) var(--ink), 0 0 0 calc(var(--px) * 2) #0006;
+    }
+    #game { width: 100%; height: 100%; display: block; background: var(--sky); touch-action: none; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .layer {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 4%;
+    }
+    .layer[hidden] { display: none; }
+
+    /* Pixel panel: hard shadow + double border, no rounded corners anywhere */
+    .panel {
+      background: var(--paper); color: var(--ink);
+      border: var(--px) solid var(--ink);
+      box-shadow: inset 0 0 0 var(--px) var(--paper-dark), calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--ink);
+      padding: clamp(14px, 3vw, 26px) clamp(16px, 4vw, 34px); max-width: 92%;
+      line-height: 1.6;
+    }
+    .panel.wood { background: var(--wood); color: var(--paper); box-shadow: inset 0 0 0 var(--px) var(--wood-dark), calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--ink); }
+    .panel.danger { box-shadow: inset 0 0 0 var(--px) var(--red), calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--red); }
+    h1 { margin: 0 0 10px; font-size: clamp(16px, 3.6vw, 30px); font-weight: 400; letter-spacing: 0; line-height: 1.4; }
+    h2 { margin: 0 0 10px; font-size: clamp(12px, 2.6vw, 20px); font-weight: 400; line-height: 1.5; }
+    p { margin: 6px 0; font-size: clamp(8px, 1.6vw, 12px); }
+    .muted { opacity: 0.7; font-size: clamp(7px, 1.3vw, 10px); }
+    .btn {
+      display: inline-block; margin: 10px 6px 0; padding: 12px 20px;
+      border: var(--px) solid var(--ink); background: var(--gold); color: var(--ink);
+      font: inherit; font-size: clamp(9px, 1.8vw, 13px); cursor: pointer; line-height: 1.2;
+      box-shadow: inset 0 calc(var(--px) * -1) 0 #c9a04a, var(--px) var(--px) 0 var(--ink);
+      transition: none;
+    }
+    .btn:active, .btn.pressed { transform: translate(var(--px), var(--px)); box-shadow: inset 0 var(--px) 0 #c9a04a, 0 0 0 var(--ink); }
+    .btn.ghost { background: var(--paper); box-shadow: inset 0 calc(var(--px) * -1) 0 var(--paper-dark), var(--px) var(--px) 0 var(--ink); }
+    .btn.pink { background: var(--red); color: #fff; box-shadow: inset 0 calc(var(--px) * -1) 0 #a8262c, var(--px) var(--px) 0 var(--ink); }
+    .btn.mint { background: var(--mint); color: var(--ink); box-shadow: inset 0 calc(var(--px) * -1) 0 #3f8f3c, var(--px) var(--px) 0 var(--ink); }
+    #title .panel { background: var(--paper); }
+    #title .logo { font-size: clamp(18px, 4vw, 34px); color: var(--red); text-shadow: var(--px) var(--px) 0 var(--ink); margin-bottom: 14px; }
+    #title .sub { color: var(--wood-dark); }
+    #lost-record { color: #2f8f4e; }
+    #lost-record[hidden] { display: none; }
+    #hud-buttons { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; }
+    #hud-buttons .btn { font-size: clamp(6px, 0.95vw, 9px); padding: clamp(4px, 0.8vw, 8px) clamp(6px, 1.2vw, 12px); margin: 0; }
+    #loading .panel { min-width: 240px; }
+    #loading-bar { height: 14px; border: var(--px) solid var(--ink); background: #fff; margin-top: 12px; position: relative; overflow: hidden; }
+    #loading-bar::after { content: ''; position: absolute; inset: 0; width: 40%; background: var(--mint); animation: load 1s linear infinite; }
+    @keyframes load { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+    /* dialog */
+    #dialog .panel { min-width: min(380px, 90%); }
+    #dialog-buttons { display: flex; justify-content: center; gap: 10px; }
+
+    /* journal */
+    #journal .panel { width: min(880px, 94%); max-height: 92%; overflow: auto; }
+    #journal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+    .card {
+      border: var(--px) dashed #9b8b6a; padding: 10px; text-align: left; min-height: 78px;
+      background: #f3e6c8; opacity: 0.6;
+    }
+    .card.seen { border: var(--px) solid var(--ink); background: #fff; opacity: 1; box-shadow: var(--px) var(--px) 0 var(--ink); }
+    .card-title { font-size: 9px; line-height: 1.5; }
+    .card-cap { font-size: 7px; line-height: 1.6; opacity: 0.8; margin-top: 4px; }
+
+    /* terms */
+    #terms .panel { width: min(640px, 94%); }
+    #terms-area { position: relative; height: 230px; }
+    #terms-body {
+      position: absolute; inset: 0; overflow: auto; text-align: left; font-size: 7px; line-height: 1.7;
+      padding: 10px; background: #fff; border: var(--px) solid var(--ink);
+    }
+    #terms-accept { position: absolute; transform: translate(-50%, -50%); transition: left 0.12s, top 0.12s; font-size: 9px; padding: 6px 12px; margin: 0; }
+    #terms-decline { font-size: clamp(12px, 3vw, 20px); padding: 14px 40px; }
+    #terms-countdown { color: var(--red); }
+
+    #rotate-hint {
+      display: none; position: absolute; left: 0; right: 0; bottom: 8%; text-align: center;
+      color: #fff; opacity: 0.8; font-size: 9px; pointer-events: none;
+    }
+    @media (max-width: 600px) {
+      #hud-buttons .btn { font-size: 7px; padding: 5px 8px; }
+      #hud-buttons { right: 6px; bottom: 6px; }
+    }
+    @media (orientation: portrait) and (max-width: 600px) {
+      #rotate-hint { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game" aria-label="Almost There game"></canvas>
+
+    <div id="hud-buttons">
+      <button class="btn ghost" id="mute" type="button" aria-label="Mute">SND</button>
+      <button class="btn ghost" id="open-journal" type="button">LOG</button>
+    </div>
+
+    <div id="loading" class="layer">
+      <div class="panel">
+        <p id="loading-text">LOADING CAKE…</p>
+        <div id="loading-bar"></div>
+      </div>
+    </div>
+
+    <div id="title" class="layer" hidden>
+      <div class="panel">
+        <div class="logo">ALMOST THERE</div>
+        <p>Carry the cake 100 m to the party.</p>
+        <p class="sub">Jump what you can. Duck what you can't.<br>Tap again mid-air to double jump.</p>
+        <p class="muted">Almost nobody makes it. Try anyway.</p>
+        <p class="muted" id="version">v6 · 100 m</p>
+        <p class="muted">SPACE / ↑ / TAP · hold for a floatier jump · M to mute</p>
+        <button class="btn" id="start" type="button">DELIVER THE CAKE</button>
+      </div>
+    </div>
+
+    <div id="dead" class="layer" hidden>
+      <div class="panel danger">
+        <h2 id="dead-title">You hit the dog.</h2>
+        <p id="dead-line">He just wanted the cake.</p>
+        <p class="muted" id="dead-dist">6.9 m. Different course next time.</p>
+        <button class="btn" id="dead-retry" type="button">TRY AGAIN</button>
+      </div>
+    </div>
+
+    <div id="win" class="layer" hidden>
+      <div class="panel">
+        <p class="muted">YOU DID IT</p>
+        <h2>CAKE DELIVERED</h2>
+        <p id="win-line">The kid is speechless. So are we.</p>
+        <p class="muted" id="win-stats">Win 1 · Try 1</p>
+        <button class="btn" id="win-again" type="button">AGAIN</button>
+        <button class="btn ghost" id="win-journal" type="button">RUN LOG</button>
+      </div>
+    </div>
+
+    <div id="lost" class="layer" hidden>
+      <div class="panel danger">
+        <p class="muted">YOU LOST. ENDING:</p>
+        <h2 id="lost-title">—</h2>
+        <p id="lost-caption">—</p>
+        <p id="lost-record">★ NEW PERSONAL BEST ★</p>
+        <p class="muted" id="lost-count">Journal 0 / 22</p>
+        <button class="btn" id="retry" type="button">TRY AGAIN (SO CLOSE)</button>
+        <button class="btn ghost" id="lost-journal" type="button">JOURNAL</button>
+      </div>
+    </div>
+
+    <div id="dialog" class="layer" hidden>
+      <div class="panel">
+        <h2 id="dialog-title">—</h2>
+        <p id="dialog-body">—</p>
+        <div id="dialog-buttons"></div>
+      </div>
+    </div>
+
+    <div id="terms" class="layer" hidden>
+      <div class="panel">
+        <h2>TERMS &amp; CONDITIONS</h2>
+        <p class="muted">Delivery requires consent. Accept within <span id="terms-countdown">7</span> s.</p>
+        <div id="terms-area">
+          <div id="terms-body">
+            <p><strong>1. Scope.</strong> By delivering, you ("the Carrier") agree that the cake ("the Cake") is delivered as-is, where-is, with all faults, sprinkles and any pigeons.</p>
+            <p><strong>2. Candle.</strong> The candle is decorative. Any wishes made are non-binding and non-refundable.</p>
+            <p><strong>3. Liability.</strong> The party accepts no responsibility for tables that move, cats that do not, or gravity in general.</p>
+            <p><strong>4. Efficiency.</strong> Carriers running too efficiently may be disqualified under Rule 4.2.</p>
+            <p><strong>5. Dreams.</strong> If this turns out to be a dream, these Terms apply to the dream.</p>
+            <p><strong>6. Acceptance.</strong> Acceptance is indicated by pressing the Accept button, if you can.</p>
+            <p><strong>7. Severability.</strong> If any clause is held to be absurd, the remaining clauses remain absurd.</p>
+            <p><strong>8. Governing law.</strong> These Terms are governed by the laws of the party table.</p>
+          </div>
+          <button class="btn mint" id="terms-accept" type="button">ACCEPT</button>
+        </div>
+        <button class="btn pink" id="terms-decline" type="button">DECLINE</button>
+      </div>
+    </div>
+
+    <div id="journal" class="layer" hidden>
+      <div class="panel">
+        <h2 id="journal-title">RUN LOG</h2>
+        <p id="journal-count" class="muted"></p>
+        <div id="journal-grid"></div>
+        <p id="journal-stats" class="muted"></p>
+        <button class="btn" id="close-journal" type="button">BACK TO LOSING</button>
+        <button class="btn ghost" id="reset-journal" type="button">RESET</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="rotate-hint">ROTATE YOUR PHONE FOR A BIGGER CAKE</div>
+
+  <script type="module" src="src/main.js?v=6"></script>
+</body>
+</html>

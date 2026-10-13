@@ -1,0 +1,15 @@
+{
+  "name": "almost-there",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A 2D runner you can never win. Every finish fails differently.",
+  "scripts": {
+    "dev": "npx -y serve . -l 5300",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.3"
+  }
+}
