@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://almost-there-delta.vercel.app/sitemap.xml

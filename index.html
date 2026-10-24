@@ -4,9 +4,20 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <title>Almost There</title>
-  <meta name="description" content="Carry a birthday cake 100 metres to the party. Almost nobody makes it." />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Almost There: a brutal cake-delivery pixel runner</title>
+  <meta name="description" content="Carry a birthday cake 100 metres to the party in this free pixel-art browser runner. Every course is new and every fall has a name. Almost nobody makes it." />
+  <link rel="canonical" href="https://almost-there-delta.vercel.app/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Almost There" />
+  <meta property="og:title" content="Almost There: a brutal cake-delivery pixel runner" />
+  <meta property="og:description" content="Carry a birthday cake 100 metres to the party in this free pixel-art browser runner. Every course is new and every fall has a name. Almost nobody makes it." />
+  <meta property="og:url" content="https://almost-there-delta.vercel.app/" />
+  <meta property="og:image" content="https://almost-there-delta.vercel.app/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Pixel-art runner carrying a birthday cake across a meadow toward hazards" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="theme-color" content="#1b1b2f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -112,6 +123,8 @@
     #terms-decline { font-size: clamp(12px, 3vw, 20px); padding: 14px 40px; }
     #terms-countdown { color: var(--red); }
 
+    /* Visually hidden but read by screen readers and crawlers. */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
     #rotate-hint {
       display: none; position: absolute; left: 0; right: 0; bottom: 8%; text-align: center;
       color: #fff; opacity: 0.8; font-size: 9px; pointer-events: none;
@@ -121,11 +134,14 @@
       #hud-buttons { right: 6px; bottom: 6px; }
     }
     @media (orientation: portrait) and (max-width: 600px) {
-      #rotate-hint { display: block; }
+      /* Visually hidden but read by screen readers and crawlers. */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    #rotate-hint { display: block; }
     }
   </style>
 </head>
 <body>
+  <h1 class="sr-only">Almost There: carry the cake 100 m to the party</h1>
   <div id="stage">
     <canvas id="game" aria-label="Almost There game"></canvas>
 
