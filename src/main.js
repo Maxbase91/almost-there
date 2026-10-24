@@ -1,3 +1,5 @@
+/*! almost-there | (c) 2026 Maximilian Ziermann. All rights reserved.
+    Authorship fingerprint MZ-098afb951f291b23 | See LICENSE and NOTICE. */
 import { W, H, PHASE, createState, startRun, step, beginEnding, fakeBest, courseFromSpec, spawnFx, GROUND_Y, isPit } from './game.js';
 import { ENDINGS, pickEnding, getEnding } from './endings.js';
 import { perfectInput } from './autopilot.js';
