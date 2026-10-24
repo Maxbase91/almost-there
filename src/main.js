@@ -415,7 +415,11 @@ function handleEvents() {
 }
 
 // ---------- Loop ----------
+// prefers-reduced-motion is re-read every tick so an OS setting change applies mid-session.
+const reducedMotionQuery = globalThis.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+
 function tick(dt) {
+  state.reducedMotion = !!reducedMotionQuery?.matches;
   if (state.phase === PHASE.TITLE) return;
   if (autopilot && state.phase === PHASE.RUNNING) {
     const a = perfectInput(state);

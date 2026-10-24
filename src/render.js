@@ -1,7 +1,7 @@
 // Canvas renderer, pixel-art edition. World drawing uses Kenney CC0 sprites and hand-pixeled art
 // (src/sprites.js, src/pixelart.js) at PIXEL_SCALE. No emoji anywhere.
 
-import { W, H, GROUND_Y, TABLE_X, PX_PER_M, COURSE_M, PHASE, BASE_SPEED, BLACKOUT, progress, isPit, biomeAt, pendulumBall } from './game.js';
+import { W, H, GROUND_Y, TABLE_X, PX_PER_M, COURSE_M, PHASE, BASE_SPEED, BLACKOUT, CALM_DIM, progress, isPit, biomeAt, pendulumBall } from './game.js';
 import { createSpriteDrawer, PIXEL_SCALE, SHEETS, SPRITES } from './sprites.js';
 
 export const FONT = '"Press Start 2P", "Courier New", monospace';
@@ -128,8 +128,9 @@ export function createRenderer(canvas, images, pixelSprites) {
     const z = cam.zoom || 1;
     const fx = cam.x + W / 2;
     const fy = cam.focusY ?? H / 2;
-    const sx = cam.shake ? Math.round((state.rng() - 0.5) * cam.shake * 14 / 3) * 3 : 0;
-    const sy = cam.shake ? Math.round((state.rng() - 0.5) * cam.shake * 10 / 3) * 3 : 0;
+    const shake = state.reducedMotion ? 0 : cam.shake;
+    const sx = shake ? Math.round((state.rng() - 0.5) * shake * 14 / 3) * 3 : 0;
+    const sy = shake ? Math.round((state.rng() - 0.5) * shake * 10 / 3) * 3 : 0;
 
     ctx.save();
     ctx.translate(W / 2 + sx, H / 2 + sy);
@@ -362,7 +363,7 @@ export function createRenderer(canvas, images, pixelSprites) {
         if (h.state === 'idle') break;
         if (h.state === 'warn') {
           ctx.fillStyle = INK;
-          const shake = Math.round(Math.sin(state.t * 60) * 3);
+          const shake = state.reducedMotion ? 0 : Math.round(Math.sin(state.t * 60) * 3);
           for (let i = 0; i < 5; i++) ctx.fillRect(Math.round(h.anchorX + 10 + i * 26) + shake, y - 2 - (i % 2) * 3, 12, 3);
           ctx.fillRect(Math.round(h.anchorX + 30) + shake, y - 8, 3, 6);
           ctx.fillRect(Math.round(h.anchorX + 90) - shake, y - 10, 3, 8);
@@ -516,16 +517,18 @@ export function createRenderer(canvas, images, pixelSprites) {
     const px = Math.round((p.x - cam.x) * (cam.zoom || 1) + (W / 2 - W / 2 * (cam.zoom || 1)));
     const py = Math.round(p.y - 30);
     ctx.save();
+    // Reduced motion: a steady dim (CALM_DIM) with the spotlight, never a full blackout.
+    const full = state.reducedMotion ? d >= CALM_DIM : d >= 1;
     ctx.fillStyle = `rgba(0,0,0,${0.97 * d})`;
     ctx.beginPath();
     ctx.rect(0, 0, W, H);
-    if (d >= 1) {
+    if (full) {
       const r = BLACKOUT.spot;
       ctx.moveTo(px + r, py);
       ctx.arc(px, py, r, 0, Math.PI * 2, true);
     }
     ctx.fill('evenodd');
-    if (d >= 1) g.text('WHO TURNED OFF THE LIGHTS', W / 2, 60, { size: 10, color: '#fff' });
+    if (full) g.text(state.reducedMotion ? 'WHO DIMMED THE LIGHTS' : 'WHO TURNED OFF THE LIGHTS', W / 2, 60, { size: 10, color: '#fff' });
     ctx.restore();
   }
 

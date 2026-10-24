@@ -76,6 +76,8 @@ const EGG = { warn: 0.6, lead: -10 }; // aimed at where a runner will be
 const KNIFE = { warn: 0.45, lead: -10 };
 const ICE_SLIDE = 0.35;
 export const BLACKOUT = { flicker: 0.5, dark: 1.0, darkNight: 1.5, spot: 150 };
+// prefers-reduced-motion: the lights dim smoothly to this level instead of flickering into a blackout.
+export const CALM_DIM = 0.6;
 export const BEAM_CLEARANCE = 74; // beam underside above the ground: a standing player (62 px) fits, any hop does not
 export const BEAM_THICK = 18;
 export const LANDING_LAG = 0; // D17 lag removed in D18: at this density it made landings unwinnable; beams and bees punish spam instead
@@ -409,6 +411,7 @@ export function createState({ rng = Math.random, attempts = 0, seed = null, cour
     slide: 0, // seconds left of banana/ice slide (no jumping)
     iceSlide: false,
     dark: 0, // blackout level for the renderer
+    reducedMotion: false, // set by main.js from prefers-reduced-motion: no shake, calm dimming instead of blackouts
     wind: { t: 0, mult: 1 }, // gust state (set by 'wind' course slots)
     winT: 0,
     distance: 0, // honest best-distance tracking (m)
@@ -833,6 +836,11 @@ export function blackoutLevel(state) {
     if (h.type !== 'blackout') continue;
     const v = runSpeed(h.anchorX);
     const flickerStart = h.anchorX - BLACKOUT.flicker * v;
+    if (state.reducedMotion) {
+      if (p.x >= flickerStart && p.x < h.anchorX) return (CALM_DIM * (p.x - flickerStart)) / (h.anchorX - flickerStart);
+      if (p.x >= h.anchorX && p.x < h.anchorX + h.w) return CALM_DIM;
+      continue;
+    }
     if (p.x >= flickerStart && p.x < h.anchorX) return 0.5 + 0.5 * Math.sin(state.t * 40) > 0.6 ? 0.6 : 0.15;
     if (p.x >= h.anchorX && p.x < h.anchorX + h.w) return 1;
   }
