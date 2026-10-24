@@ -1,6 +1,6 @@
 /*! almost-there | (c) 2026 Maximilian Ziermann. All rights reserved.
     Authorship fingerprint MZ-098afb951f291b23 | See LICENSE and NOTICE. */
-import { W, H, PHASE, createState, startRun, step, beginEnding, fakeBest, courseFromSpec, spawnFx, GROUND_Y, isPit } from './game.js';
+import { W, H, PHASE, createState, startRun, step, beginEnding, fakeBest, courseFromSpec, spawnFx, GROUND_Y, isPit, HAZARD_TYPES } from './game.js';
 import { ENDINGS, pickEnding, getEnding } from './endings.js';
 import { perfectInput } from './autopilot.js';
 import { loadJournal, saveJournal, markSeen, recordAttempt, recordRun } from './journal.js';
@@ -15,6 +15,7 @@ canvas.width = W;
 canvas.height = H;
 
 const params = new URLSearchParams(location.search);
+const MAX_ADVANCE_S = 600;
 const forcedEnding = params.get('ending');
 // Dev aids (documented in README): ?autopilot=1 plays the course itself, ?debug exposes state,
 // ?seed=N reproduces a course, ?course=dog@1500,pig@2600 builds one explicitly.
@@ -28,6 +29,8 @@ const forcedCourseSpec = params.has('course')
       .split(',')
       .map((item) => item.split('@'))
       .map(([type, x]) => ({ type, x: Number(x) }))
+      // Drop unknown types and non-numeric positions: a hand-edited link must not crash the game.
+      .filter(({ type, x }) => Object.hasOwn(HAZARD_TYPES, type) && Number.isFinite(x))
   : null;
 
 const audio = createAudio();
@@ -161,7 +164,14 @@ function renderJournal() {
     for (const [type, n] of rows) {
       const card = document.createElement('div');
       card.className = 'card seen';
-      card.innerHTML = `<div class="card-title">${label(type).toUpperCase()}</div><div class="card-cap">got you ${n}×</div>`;
+      // Keys come from localStorage, so build the card with textContent rather than innerHTML.
+      const cardTitle = document.createElement('div');
+      cardTitle.className = 'card-title';
+      cardTitle.textContent = label(type).toUpperCase();
+      const cardCap = document.createElement('div');
+      cardCap.className = 'card-cap';
+      cardCap.textContent = `got you ${n}×`;
+      card.append(cardTitle, cardCap);
       grid.appendChild(card);
     }
     if (!rows.length) grid.innerHTML = '<div class="card"><div class="card-title">???</div><div class="card-cap">Nothing has got you yet.</div></div>';
@@ -457,8 +467,9 @@ async function boot() {
   // ?autoplay=1 starts a run immediately; ?advance=S steps the simulation S seconds (headless screenshots).
   if (params.has('autoplay')) {
     restart();
-    const adv = Number(params.get('advance'));
-    if (adv > 0) {
+    // Capped and finite-checked: ?advance=Infinity or a huge value would otherwise freeze the tab.
+    const adv = Math.min(Number(params.get('advance')), MAX_ADVANCE_S);
+    if (Number.isFinite(adv) && adv > 0) {
       for (let t = 0; t < adv; t += 1 / 60) tick(1 / 60);
       renderer.draw(state, hud);
     }
