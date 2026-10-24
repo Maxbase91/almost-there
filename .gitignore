@@ -2,3 +2,20 @@ node_modules
 .DS_Store
 .vercel
 .env*
+!.env.example
+
+# Local-only agent notes (public repo)
+CLAUDE.md
+AGENTS.md
+.claude/
+tasks/
+
+# Tooling output
+coverage/
+*.log
+npm-debug.log*
+.cache/
+
+# Keys
+*.pem
+*.key
