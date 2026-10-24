@@ -50,6 +50,9 @@ Out of scope (not implemented, no plan found):
 | F7 | Mute state survives reloads. | Implemented, not unit-tested |
 | F8 | Legacy endings never repeat until all have been seen. | Implemented, tested |
 | F9 | Portrait phones get a "rotate your phone" hint. | Implemented |
+| F10 | `prefers-reduced-motion`: no shake, blackouts dim calmly instead of flickering. | Implemented, logic tested |
+| F11 | Pinch zoom allowed without breaking tap controls. | Implemented |
+| F12 | Shareable: canonical URL, Open Graph image, robots.txt, sitemap. | Implemented |
 
 ## 5. Non-functional requirements
 
@@ -69,12 +72,10 @@ Out of scope (not implemented, no plan found):
 ## 7. Risks
 
 - Difficulty tuning relies on a synthetic player; real-player difficulty is unmeasured.
-- Accessibility is limited (see DESIGN.md §6): canvas-only gameplay, flashing/shaking effects, zoom disabled.
+- Accessibility is limited (see DESIGN.md §6): gameplay is canvas-only. Zoom and reduced motion are supported.
 - The landing-page embed is a manual copy and can drift from this repo.
 
 ## 8. Open questions
 
-- Should page zoom be allowed (`user-scalable=no` in the viewport meta)?
-- Should there be a reduced-motion mode (no shake, no blackout flashes)?
-- Should the page get Open Graph / canonical tags for link sharing?
 - Should the embedded copy on the landing page be generated from this repo rather than copied by hand?
+  (Owner, 2026-10-24: not copying the game there for now.)

@@ -8,7 +8,7 @@ No framework, no bundler. One HTML page, a few ES modules, pixel-art sprites fro
 
 ## Play
 
-Live: **https://almost-there-delta.vercel.app** (works on phones; landscape is best, tap to jump, tap again mid-air to double jump).
+Live: **https://almost-there-delta.vercel.app** (works on phones; landscape is best, tap to jump, tap again mid-air to double jump). With *reduce motion* switched on in the OS, the game skips screen shake and dims the lights instead of blacking out.
 
 Source: https://github.com/Maxbase91/almost-there. Pushes to `main` auto-deploy to Vercel (project `almost-there`); `vercel.json` sets security headers, no-cache for the page and scripts, and a day of caching for assets.
 

@@ -55,10 +55,22 @@ Art sources: Kenney "Pixel Platformer", "Tiny Farm", "UI Pack - Pixel Adventure"
 
 - Keyboard: Space / ↑ / W jump and start, M mutes; all overlay buttons are real `<button>` elements.
 - Mute button updates its `aria-label`; the canvas has `aria-label="Almost There game"`.
-- Gaps (open questions, not fixed because they change behaviour):
-  - `user-scalable=no` in the viewport meta blocks pinch zoom.
-  - No `prefers-reduced-motion` handling: screen shake and blackout hazards always play.
+- Pinch zoom is allowed (no `user-scalable=no`). `body` uses `touch-action: manipulation` (pinch and pan allowed,
+  double-tap zoom off so quick taps on buttons never zoom); the game canvas keeps `touch-action: none` so taps jump
+  instantly and a two-finger gesture on the play field cannot zoom mid-run. Pinch works on panels, HUD and letterbox.
+- `prefers-reduced-motion: reduce` (read every tick, so an OS change applies live): no camera shake, no crack jitter,
+  and blackouts become a smooth dim to 60 % with the spotlight ("WHO DIMMED THE LIGHTS") instead of a flicker into
+  black. Physics are unchanged; the dimmed stretch is easier to read than a full blackout.
+- One visually hidden `h1` (`.sr-only`) names the page for screen readers and crawlers.
+- Remaining gaps:
   - Overlays are not modal dialogs (no focus move or focus trap); focus stays where it was.
   - Gameplay information exists only on the canvas; screen readers get the overlay text only.
-  - No `h1` on the page (the logo is a `div`), no Open Graph or canonical tags.
   - Muted text uses `opacity: 0.7` on paper; contrast has not been measured.
+
+## 7. Sharing and SEO
+
+- Title "Almost There: a brutal cake-delivery pixel runner" (49 chars), description 155 chars, canonical
+  `https://almost-there-delta.vercel.app/`, Open Graph + `twitter:card=summary_large_image`.
+- `og.png` (1200×630, gameplay screenshot on the `--bg` letterbox). PNG rather than WebP on purpose: not every
+  link-preview crawler renders WebP.
+- `robots.txt` allows everything and points to `sitemap.xml` (one URL).

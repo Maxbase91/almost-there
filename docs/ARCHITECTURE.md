@@ -51,6 +51,10 @@ flowchart LR
    journal updates (`recordRun`, `markSeen`, then `saveJournal`).
 4. `render.draw(state, hud)` paints the frame.
 
+`state.reducedMotion` is copied from `matchMedia('(prefers-reduced-motion: reduce)')` at the start of every tick.
+`blackoutLevel` (pure, tested in `tests/motion.test.js`) then returns a smooth ramp to `CALM_DIM` instead of a
+flicker to 1, and the renderer skips camera shake. Physics never read the flag.
+
 Phases: `TITLE → RUNNING → DEAD | WIN`; with `?endings=1`, `RUNNING → ENDING → LOST`.
 
 ## 4. Data model
