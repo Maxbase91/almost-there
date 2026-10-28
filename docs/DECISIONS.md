@@ -114,3 +114,16 @@ Decisions (mine, with the same two invariants as always: a warning cue, and the 
 - **Biomes** every 25 m: meadow, desert (sand, cacti, tumbleweed), snow (ice, snowmen), night (stars, lanterns, longer blackouts).
 - The flawless player's arc check was generalised from walls to every tall obstacle (cows and bros were being descended into), eggs and knives only trigger a double jump when the landing meets the impact, and both rains get double-jump spacing after them.
 Consequences: flawless player clears 2 000 / 2 000 seeds; human-ish proxy ≈ 14 %; 27 hazard types in the pool (plus gust, blackout and ice stretches).
+
+## D20. Office mode: "Ship the project" (2026-10-28, owner: "more parody items, amok IT scrum masters, jira tickets, complaining people … another version … project delivery in a company")
+
+Decision (owner, asked): a mode select on the title screen, cake or project delivery; the carried item in the office is a laptop with the release.
+Decisions (mine): the office mode is a **skin, not a second game**. Every hazard type id, its physics and the course generator stay shared; `src/themes.js` maps each id to office art, label, death line and speech-bubble words (pig → amok scrum master yelling "STANDUP!", chickens → Jira tickets "BLOCKER", slime → reopened ticket, mole → complaining colleague over a cubicle wall, dog → complaining customer, cow → steering committee, snake → approval chain, finance bro → agile coach "PIVOT!" with a backlog dip, eggs → reply-all emails, knives → pens, pendulum → reorg, blackout → forced OS update). Art sizes match the existing hitboxes so what you see is what hits you. The four biomes become open-plan, server room, cold meeting room and after hours. Each mode keeps its own run log (`almost-there:office:v1`; the cake log keeps `almost-there:v2`). The legacy joke endings (`?endings=1`) stay cake-only.
+Consequences: the autopilot and every mechanics test cover both modes unchanged; new hazards must get office text and art (`tests/themes.test.js` fails otherwise).
+
+## D21. iPhone layout: portrait zooms in (2026-10-28, owner: "optimise this game for the iPhone screen")
+
+Context: in portrait the 960×540 canvas was a 390×219 strip and the menus overflowed it; there was no safe-area handling and pixels were stretched by a non-integer factor.
+Decision (owner, asked): portrait zooms in rather than only asking to rotate.
+Decisions (mine): portrait renders a **600 px wide** logical view around the same camera centre as landscape (render-only, physics untouched), so sprites draw about 1.6× bigger and the player keeps 480 px of lookahead (was 672). The stage is fitted inside the safe area, the canvas backing store matches device pixels, menus become full-screen panels, SOUND/LOG move above the stage, and tapping anywhere outside the panels jumps. A web manifest and apple-touch-icon make the home-screen app full-screen.
+Consequences: portrait is slightly harder (less lookahead) than landscape; the lever is `PORTRAIT_VIEW_W` in `src/main.js`. The legacy endings draw their screen overlays for a 960 px view and can sit off-centre in portrait.

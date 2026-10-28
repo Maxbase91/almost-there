@@ -13,11 +13,12 @@ function safeStorage(storage) {
   }
 }
 
-export function loadJournal(storage) {
+// key: one journal per game mode (src/themes.js journalKey); the cake mode keeps the original key.
+export function loadJournal(storage, key = STORAGE_KEY) {
   const st = safeStorage(storage);
   if (!st) return EMPTY();
   try {
-    const raw = st.getItem(STORAGE_KEY);
+    const raw = st.getItem(key);
     if (!raw) return EMPTY();
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return EMPTY();
@@ -38,11 +39,11 @@ export function loadJournal(storage) {
   }
 }
 
-export function saveJournal(journal, storage) {
+export function saveJournal(journal, storage, key = STORAGE_KEY) {
   const st = safeStorage(storage);
   if (!st) return false;
   try {
-    st.setItem(STORAGE_KEY, JSON.stringify({ ...journal, best: Math.min(journal.best, 99.9) }));
+    st.setItem(key, JSON.stringify({ ...journal, best: Math.min(journal.best, 99.9) }));
     return true;
   } catch {
     return false;
