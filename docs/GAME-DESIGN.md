@@ -98,7 +98,9 @@ All drawn with sprites (hero, cake, table, kid, pigeon, cat, referee, repo man, 
 
 ## 6. Controls and platforms
 
-Desktop: Space / ↑ / W, M to mute. Mobile: tap; second tap mid-air double-jumps. Landscape intended; portrait shows a rotate hint.
+Desktop: Space / ↑ / W, M to mute. Mobile: tap anywhere (the canvas or the space around it); second tap mid-air double-jumps. Landscape shows the full 960 px view; portrait crops it to 600 px around the same centre so sprites draw about 1.6× bigger (480 px of lookahead instead of 672, D21). The layout stays inside the iPhone safe area, menus go full screen in portrait, and touch targets are at least 44 pt.
+
+Modes (D20): **Deliver the cake** and **Ship the project** share every hazard and rule; the office mode only reskins them (see `src/themes.js`).
 
 ## 7. Non-goals
 

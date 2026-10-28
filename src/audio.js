@@ -75,7 +75,8 @@ export function createAudio() {
   function unlock() {
     const c = ensureCtx();
     if (!c) return;
-    if (c.state === 'suspended') c.resume().catch(() => {});
+    // iOS reports 'interrupted' after a call or app switch; any non-running state needs a resume from a gesture.
+    if (c.state !== 'running') c.resume().catch(() => {});
     load().then(startMusic);
   }
 
@@ -99,6 +100,12 @@ export function createAudio() {
     src.start();
   }
 
+  // Pause music while the tab is hidden; the next tap (unlock) resumes it if the browser refuses here.
+  function setHidden(hidden) {
+    if (!ctx) return;
+    (hidden ? ctx.suspend() : ctx.resume()).catch(() => {});
+  }
+
   function setMuted(on) {
     muted = !!on;
     try {
@@ -113,6 +120,7 @@ export function createAudio() {
   return {
     unlock,
     load,
+    setHidden,
     play,
     setMuted,
     get muted() {

@@ -8,6 +8,8 @@
   <title>Almost There: a brutal cake-delivery pixel runner</title>
   <meta name="description" content="Carry a birthday cake 100 metres to the party in this free pixel-art browser runner. Every course is new and every fall has a name. Almost nobody makes it." />
   <link rel="canonical" href="https://almost-there-delta.vercel.app/" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Almost There" />
   <meta property="og:title" content="Almost There: a brutal cake-delivery pixel runner" />
@@ -47,9 +49,16 @@
       font-family: "Press Start 2P", "Courier New", monospace; overflow: hidden;
       -webkit-user-select: none; user-select: none; touch-action: manipulation;
       image-rendering: pixelated;
+      overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    }
+    /* Probe for main.js fit(): the viewport minus the notch and home-indicator insets. */
+    #safe-area {
+      position: fixed; inset: 0; visibility: hidden; pointer-events: none;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
     #stage {
-      position: absolute; inset: 0; margin: auto;
+      position: absolute; left: 0; top: 0;
       width: 960px; height: 540px; max-width: 100vw; max-height: 100vh;
       box-shadow: 0 0 0 var(--px) var(--ink), 0 0 0 calc(var(--px) * 2) #0006;
     }
@@ -88,6 +97,7 @@
     #title .panel { background: var(--paper); }
     #title .logo { font-size: clamp(18px, 4vw, 34px); color: var(--red); text-shadow: var(--px) var(--px) 0 var(--ink); margin-bottom: 14px; }
     #title .sub { color: var(--wood-dark); }
+    #mode-buttons { display: flex; flex-wrap: wrap; justify-content: center; }
     #lost-record { color: #2f8f4e; }
     #lost-record[hidden] { display: none; }
     #hud-buttons { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; }
@@ -126,18 +136,40 @@
     /* Visually hidden but read by screen readers and crawlers. */
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
     #rotate-hint {
-      display: none; position: absolute; left: 0; right: 0; bottom: 8%; text-align: center;
-      color: #fff; opacity: 0.8; font-size: 9px; pointer-events: none;
+      display: none; position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 28px);
+      text-align: center; color: #fff; opacity: 0.8; font-size: 10px; line-height: 2; pointer-events: none;
     }
-    @media (max-width: 600px) {
-      #hud-buttons .btn { font-size: 7px; padding: 5px 8px; }
+    #rotate-hint::before { content: 'TAP ANYWHERE TO JUMP'; display: block; color: var(--gold); }
+    /* Touch screens: 44 pt minimum targets (Apple HIG). */
+    @media (pointer: coarse) {
+      #hud-buttons .btn { min-width: 44px; min-height: 44px; font-size: 9px; padding: 6px 10px; }
       #hud-buttons { right: 6px; bottom: 6px; }
+      .btn { min-height: 44px; }
     }
-    @media (orientation: portrait) and (max-width: 600px) {
-      /* Visually hidden but read by screen readers and crawlers. */
-    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-    #rotate-hint { display: block; }
+    /* Short landscape phones: compact panels so menus fit the stage. */
+    @media (max-height: 500px) and (orientation: landscape) {
+      .panel { padding: 10px 18px; line-height: 1.45; }
+      p { margin: 4px 0; font-size: 9px; }
+      .muted { font-size: 8px; }
+      .btn { margin-top: 6px; padding: 10px 14px; font-size: 10px; }
+      #title .logo { font-size: 20px; margin-bottom: 6px; }
+      #terms-area { height: 150px; }
     }
+    /* Portrait phones: the stage is a band, so menus take the whole screen and scroll if needed. */
+    body.portrait .layer {
+      position: fixed; inset: 0; z-index: 2; overflow-y: auto; background: rgba(27, 27, 47, 0.55);
+      padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+    }
+    body.portrait .layer > .panel { margin: auto; max-width: 100%; }
+    body.portrait p { font-size: 10px; }
+    body.portrait .muted { font-size: 9px; }
+    body.portrait h2 { font-size: 15px; }
+    body.portrait .btn { font-size: 12px; padding: 14px 16px; }
+    body.portrait #title .logo { font-size: 24px; }
+    body.portrait #terms-area { height: 45vh; }
+    body.portrait #rotate-hint { display: block; }
+    /* Portrait has spare room above the stage: keep the buttons out of the play area. */
+    body.portrait #hud-buttons { position: fixed; top: calc(env(safe-area-inset-top) + 12px); right: 12px; bottom: auto; }
   </style>
 </head>
 <body>
@@ -160,12 +192,15 @@
     <div id="title" class="layer" hidden>
       <div class="panel">
         <div class="logo">ALMOST THERE</div>
-        <p>Carry the cake 100 m to the party.</p>
+        <p>100 m. One delivery. Pick it.</p>
         <p class="sub">Jump what you can. Duck what you can't.<br>Tap again mid-air to double jump.</p>
         <p class="muted">Almost nobody makes it. Try anyway.</p>
-        <p class="muted" id="version">v6 · 100 m</p>
+        <p class="muted" id="version">v7 · 100 m</p>
         <p class="muted">SPACE / ↑ / TAP · hold for a floatier jump · M to mute</p>
-        <button class="btn" id="start" type="button">DELIVER THE CAKE</button>
+        <div id="mode-buttons">
+          <button class="btn" id="start" type="button">DELIVER THE CAKE</button>
+          <button class="btn" id="start-office" type="button">SHIP THE PROJECT</button>
+        </div>
       </div>
     </div>
 
@@ -175,17 +210,19 @@
         <p id="dead-line">He just wanted the cake.</p>
         <p class="muted" id="dead-dist">6.9 m. Different course next time.</p>
         <button class="btn" id="dead-retry" type="button">TRY AGAIN</button>
+        <button class="btn ghost" id="dead-menu" type="button">MENU</button>
       </div>
     </div>
 
     <div id="win" class="layer" hidden>
       <div class="panel">
         <p class="muted">YOU DID IT</p>
-        <h2>CAKE DELIVERED</h2>
+        <h2 id="win-title">CAKE DELIVERED</h2>
         <p id="win-line">The kid is speechless. So are we.</p>
         <p class="muted" id="win-stats">Win 1 · Try 1</p>
         <button class="btn" id="win-again" type="button">AGAIN</button>
         <button class="btn ghost" id="win-journal" type="button">RUN LOG</button>
+        <button class="btn ghost" id="win-menu" type="button">MENU</button>
       </div>
     </div>
 
@@ -242,8 +279,9 @@
     </div>
   </div>
 
-  <div id="rotate-hint">ROTATE YOUR PHONE FOR A BIGGER CAKE</div>
+  <div id="rotate-hint">ROTATE FOR THE FULL VIEW</div>
+  <div id="safe-area" aria-hidden="true"></div>
 
-  <script type="module" src="src/main.js?v=6"></script>
+  <script type="module" src="src/main.js?v=7"></script>
 </body>
 </html>

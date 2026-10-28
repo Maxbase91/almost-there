@@ -37,9 +37,10 @@ flowchart LR
 | `src/game.js` | Constants, `HAZARD_TYPES`, seeded RNG (`mulberry32`), `generateCourse`, `createState`, `startRun`, `step(state, input, dt)`, collisions, camera, effects. | None (pure, runs in Node) |
 | `src/autopilot.js` | `perfectInput` (flawless player) and `createHumanInput` (jittery player) used by tests and `?autopilot=1`. | None |
 | `src/endings.js` | `ENDINGS`, `pickEnding` (no repeats until all seen), `getEnding`. Only used with `?endings=1`. | None in logic; endings call `s.ui.*` hooks |
-| `src/journal.js` | Load/save the run log with validation; injectable storage. | `localStorage` (optional) |
+| `src/themes.js` | Game modes as skins (D20): sprite slots, bubble words, hazard labels, death and DOM copy, journal key per mode. | None (pure) |
+| `src/journal.js` | Load/save the run log with validation; injectable storage and key (one journal per mode). | `localStorage` (optional) |
 | `src/main.js` | Boot, URL params, input (keyboard, pointer), fixed-cap frame loop (`dt ≤ 50 ms`), DOM overlays, journal panel, debug hook. | DOM, `requestAnimationFrame`, `location.search` |
-| `src/render.js` | Draws world, hazards, hero, cake, table, HUD, overlays on a 960×540 canvas. | Canvas 2D |
+| `src/render.js` | Draws world, hazards, hero, cake, table, HUD, overlays in a 960×540 logical space (600×540 in portrait, D21) at device-pixel resolution; `setTheme`, `setView`. | Canvas 2D |
 | `src/sprites.js` / `src/pixelart.js` | Load Kenney sheets from `assets/sprites/`; hand-pixeled sprites from string grids. | `Image` |
 | `src/audio.js` / `src/sfx.js` | Fetch and decode `assets/audio/*.ogg`, music loop, mute toggle. | Web Audio, `fetch` (same origin), `localStorage` |
 

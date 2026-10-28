@@ -1,0 +1,11 @@
+{
+  "name": "Almost There",
+  "short_name": "Almost There",
+  "description": "Carry the cake (or ship the project) 100 m. Almost nobody makes it.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1b1b2f",
+  "theme_color": "#1b1b2f",
+  "icons": [{ "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }]
+}

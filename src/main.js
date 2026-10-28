@@ -1,6 +1,6 @@
 /*! almost-there | (c) 2026 Maximilian Ziermann. All rights reserved.
     Authorship fingerprint MZ-098afb951f291b23 | See LICENSE and NOTICE. */
-import { W, H, PHASE, createState, startRun, step, beginEnding, fakeBest, courseFromSpec, spawnFx, GROUND_Y, isPit, HAZARD_TYPES } from './game.js';
+import { W, H, PHASE, createState, startRun, step, beginEnding, fakeBest, courseFromSpec, spawnFx, GROUND_Y, HAZARD_TYPES } from './game.js';
 import { ENDINGS, pickEnding, getEnding } from './endings.js';
 import { perfectInput } from './autopilot.js';
 import { loadJournal, saveJournal, markSeen, recordAttempt, recordRun } from './journal.js';
@@ -8,6 +8,7 @@ import { createRenderer } from './render.js';
 import { loadImages } from './sprites.js';
 import { buildPixelSprites } from './pixelart.js';
 import { createAudio } from './audio.js';
+import { MODES, DEFAULT_MODE, isMode, getTheme, deathText, journalLabel } from './themes.js';
 
 const $ = (sel) => document.querySelector(sel);
 const canvas = $('#game');
@@ -33,8 +34,20 @@ const forcedCourseSpec = params.has('course')
       .filter(({ type, x }) => Object.hasOwn(HAZARD_TYPES, type) && Number.isFinite(x))
   : null;
 
+// Game mode (D20): ?mode=office, else the last mode picked on the title screen. ?endings=1 is cake-only.
+const MODE_KEY = 'almost-there:mode';
+function storedMode() {
+  try {
+    return localStorage.getItem(MODE_KEY);
+  } catch {
+    return null;
+  }
+}
+let mode = endingsMode ? DEFAULT_MODE : [params.get('mode'), storedMode()].find(isMode) ?? DEFAULT_MODE;
+let theme = getTheme(mode);
+
 const audio = createAudio();
-let journal = loadJournal();
+let journal = loadJournal(undefined, theme.journalKey);
 let state = createState({ rng: Math.random, attempts: journal.attempts });
 let hud = { attempts: journal.attempts, best: journal.best, prevBest: journal.best, muted: audio.muted, wins: journal.wins, bestM: endingsMode ? null : journal.bestM };
 const input = { jumpPressed: false, jumpHeld: false };
@@ -160,14 +173,14 @@ function renderJournal() {
   if (!endingsMode) {
     $('#journal-title').textContent = 'RUN LOG';
     const rows = Object.entries(journal.deaths).sort((a, b) => b[1] - a[1]);
-    const label = (t) => ({ pit: 'hole', pitwide: 'big hole', skate: 'skateboard', meteor: 'crate', peel: 'banana' })[t] ?? t;
     for (const [type, n] of rows) {
       const card = document.createElement('div');
       card.className = 'card seen';
       // Keys come from localStorage, so build the card with textContent rather than innerHTML.
       const cardTitle = document.createElement('div');
       cardTitle.className = 'card-title';
-      cardTitle.textContent = label(type).toUpperCase();
+      // Unknown keys (hand-edited storage) fall back to the raw key, still via textContent.
+      cardTitle.textContent = (Object.hasOwn(HAZARD_TYPES, type) ? journalLabel(theme, type) : type).toUpperCase();
       const cardCap = document.createElement('div');
       cardCap.className = 'card-cap';
       cardCap.textContent = `got you ${n}×`;
@@ -207,7 +220,7 @@ $('#close-journal').addEventListener('click', () => {
 $('#reset-journal').addEventListener('click', () => {
   if (!confirm('Forget every way you have lost?')) return;
   journal = { seen: [], attempts: 0, best: 0, wins: 0, bestM: 0, deaths: {} };
-  saveJournal(journal);
+  saveJournal(journal, undefined, theme.journalKey);
   hud.attempts = 0;
   hud.best = 0;
   hud.prevBest = 0;
@@ -244,12 +257,61 @@ function restart() {
   lastPhase = state.phase;
 }
 
-for (const id of ['#start', '#retry', '#dead-retry', '#win-again']) {
+for (const id of ['#retry', '#dead-retry', '#win-again']) {
   $(id).addEventListener('click', () => {
     audio.unlock();
     audio.play('click');
     restart();
   });
+}
+for (const [id, m] of [['#start', 'cake'], ['#start-office', 'office']]) {
+  $(id).addEventListener('click', () => {
+    audio.unlock();
+    audio.play('click');
+    setMode(m);
+    restart();
+  });
+}
+for (const id of ['#dead-menu', '#win-menu']) {
+  $(id).addEventListener('click', () => {
+    audio.play('click');
+    showTitle();
+  });
+}
+
+// Switches skin, journal and DOM copy. Never builds HTML: every string goes through textContent.
+function setMode(m) {
+  if (!isMode(m) || (endingsMode && m !== DEFAULT_MODE)) return;
+  mode = m;
+  theme = getTheme(m);
+  try {
+    localStorage.setItem(MODE_KEY, m);
+  } catch {
+    /* private mode: the choice just isn't remembered */
+  }
+  journal = loadJournal(undefined, theme.journalKey);
+  hud = { ...hud, attempts: journal.attempts, best: journal.best, prevBest: journal.best, wins: journal.wins, bestM: endingsMode ? null : journal.bestM };
+  if (renderer) renderer.setTheme(m);
+  applyDomText();
+}
+
+function applyDomText() {
+  const d = theme.dom;
+  $('#loading-text').textContent = d.loading;
+  $('#win-title').textContent = d.winTitle;
+  $('#close-journal').textContent = d.closeJournal;
+  $('#rotate-hint').textContent = d.rotate;
+  for (const m of MODES) $(m === 'cake' ? '#start' : '#start-office').classList.toggle('ghost', m !== mode);
+  $('#start-office').hidden = endingsMode;
+}
+
+function showTitle() {
+  ui.hideDialog();
+  for (const el of [lost, dead, win, journalPanel]) el.hidden = true;
+  state = createState({ rng: Math.random, attempts: hud.attempts });
+  state.ui = ui;
+  lastPhase = state.phase;
+  title.hidden = false;
 }
 
 function onEnterEnding() {
@@ -260,12 +322,11 @@ function onEnterEnding() {
 
 function onWin() {
   journal = recordRun(journal, { distanceM: 100, won: true });
-  saveJournal(journal);
+  saveJournal(journal, undefined, theme.journalKey);
   hud.wins = journal.wins;
   hud.bestM = journal.bestM;
   $('#win-stats').textContent = `Win ${journal.wins} · Try ${journal.attempts}`;
-  const lines = ['The kid is speechless. So are we.', 'Nobody expected that. Least of all the pig.', 'Frame this. It will not happen again soon.', 'The cake is slightly dented. Nobody minds.'];
-  $('#win-line').textContent = lines[journal.wins % lines.length];
+  $('#win-line').textContent = theme.winLines[journal.wins % theme.winLines.length];
   audio.play('fanfare');
   setTimeout(() => {
     if (state.phase === PHASE.WIN) win.hidden = false;
@@ -276,7 +337,7 @@ function onLost() {
   const def = state.ending.def;
   journal = markSeen(journal, def.id);
   journal = recordAttempt(journal, fakeBest(journal.best, Math.random));
-  saveJournal(journal);
+  saveJournal(journal, undefined, theme.journalKey);
   hud.best = journal.best;
   $('#lost-title').textContent = def.title;
   $('#lost-caption').textContent = def.caption;
@@ -291,17 +352,11 @@ function onLost() {
 // Honest loss (D2): freeze, name the hazard, wait for the player.
 function onDead() {
   const h = state.deadBy;
-  let t = `You hit the ${h.label}.`;
-  if (h.type === 'pig') t = 'The pig got you.';
-  if (isPit(h)) t = h.type === 'pitwide' ? 'You fell in the big hole.' : 'You fell in the hole.';
-  if (h.type === 'meteor') t = 'A crate fell on you.';
-  if (h.type === 'crack') t = h.bro ? 'You fell in the dip.' : 'The ground opened under you.';
-  const titles = { mole: 'The mole got you.', pendulum: 'The spiked ball got you.', egg: 'An egg landed on you.', knife: 'A knife landed on you.', chick: 'You hit a chicken.', bro: 'The finance bro got you.', slime: 'You jumped into the slime.', cow: 'You ran into the cow.', snake: 'You stepped on the snake.' };
-  if (titles[h.type]) t = titles[h.type];
-  $('#dead-title').textContent = t;
-  $('#dead-line').textContent = h.line;
+  const text = deathText(theme, h);
+  $('#dead-title').textContent = text.title;
+  $('#dead-line').textContent = text.line;
   journal = recordRun(journal, { distanceM: state.distance, won: false, deathType: h.type });
-  saveJournal(journal);
+  saveJournal(journal, undefined, theme.journalKey);
   hud.bestM = endingsMode ? null : journal.bestM;
   const best = journal.bestM >= state.distance - 0.05 && journal.bestM <= state.distance + 0.05 && !endingsMode;
   $('#dead-dist').textContent = `${state.distance.toFixed(1)} m${best ? ' · new best' : ''}. Different course next time.`;
@@ -357,6 +412,12 @@ canvas.addEventListener('pointerdown', (e) => {
   audio.unlock();
   press();
 });
+// Phones: the space around the stage (portrait leaves plenty) is a jump button too.
+document.addEventListener('pointerdown', (e) => {
+  if (e.target === canvas || e.target.closest('button, .layer')) return;
+  audio.unlock();
+  press();
+});
 window.addEventListener('pointerup', release);
 window.addEventListener('pointercancel', release);
 
@@ -382,7 +443,7 @@ function handleEvents() {
         spawnFx(state, 16, { x: p.x, y: p.y - 30, color: ['#f4a0b5', '#fff', '#ffd166'], size: 4, speed: 260, life: 0.9 });
         break;
       case 'oink':
-        audio.play('oink', { rate: 0.8 });
+        audio.play(theme.sounds.oink ?? 'oink', { rate: 0.8 });
         break;
       case 'flap':
         audio.play('flap', { volume: 0.5 });
@@ -446,14 +507,38 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// Keep the canvas letterboxed to the viewport.
+// Letterbox the canvas inside the safe area (notch, home indicator). #safe-area is a fixed probe padded by
+// env(safe-area-inset-*), so it tracks Safari's collapsing toolbars but not pinch zoom.
+// Portrait uses a narrower logical view (D21): the same course, cropped at the edges, drawn bigger.
+const PORTRAIT_VIEW_W = 600;
 function fit() {
-  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  const probe = $('#safe-area');
+  const cs = getComputedStyle(probe);
+  const pad = (side) => parseFloat(cs[`padding${side}`]) || 0;
+  const r = probe.getBoundingClientRect();
+  const left = pad('Left');
+  const top = pad('Top');
+  const availW = Math.max(1, r.width - left - pad('Right'));
+  const availH = Math.max(1, r.height - top - pad('Bottom'));
+  const portrait = availW < availH;
+  const viewW = portrait ? PORTRAIT_VIEW_W : W;
+  const scale = Math.min(availW / viewW, availH / H);
+  const w = Math.floor(viewW * scale);
+  const h = Math.floor(H * scale);
   const stage = $('#stage');
-  stage.style.width = `${Math.floor(W * scale)}px`;
-  stage.style.height = `${Math.floor(H * scale)}px`;
+  stage.style.width = `${w}px`;
+  stage.style.height = `${h}px`;
+  stage.style.left = `${Math.round(left + (availW - w) / 2)}px`;
+  // Portrait: sit in the upper part so the thumb zone below stays free for tapping.
+  stage.style.top = `${Math.round(top + (availH - h) * (portrait ? 0.3 : 0.5))}px`;
+  document.body.classList.toggle('portrait', portrait);
+  if (renderer) renderer.setView({ viewW, cssW: w, cssH: h, dpr: Math.min(3, window.devicePixelRatio || 1) });
 }
 window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', fit);
+window.visualViewport?.addEventListener('resize', fit);
+document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
+applyDomText();
 fit();
 
 // ---------- Boot ----------
@@ -461,6 +546,8 @@ async function boot() {
   try {
     const [images] = await Promise.all([loadImages(), document.fonts ? document.fonts.load('12px "Press Start 2P"').catch(() => null) : null]);
     renderer = createRenderer(canvas, images, buildPixelSprites());
+    renderer.setTheme(mode);
+    fit();
   } catch (err) {
     $('#loading-text').textContent = 'Could not load the art. Reload?';
     throw err;

@@ -62,6 +62,7 @@ Art sources: Kenney "Pixel Platformer", "Tiny Farm", "UI Pack - Pixel Adventure"
   and blackouts become a smooth dim to 60 % with the spotlight ("WHO DIMMED THE LIGHTS") instead of a flicker into
   black. Physics are unchanged; the dimmed stretch is easier to read than a full blackout.
 - One visually hidden `h1` (`.sr-only`) names the page for screen readers and crawlers.
+- Phones: the stage sits inside `env(safe-area-inset-*)` (notch, home indicator), touch targets are at least 44 pt (`pointer: coarse`), portrait menus are full-screen scrollable panels, and the area around the stage is a jump button.
 - Remaining gaps:
   - Overlays are not modal dialogs (no focus move or focus trap); focus stays where it was.
   - Gameplay information exists only on the canvas; screen readers get the overlay text only.
