@@ -28,6 +28,8 @@ Opens a static server on http://localhost:5300 (ES modules need a server; `file:
 npm test
 ```
 
+`scripts/verify.sh` — runs the CI checks locally; runs automatically on `git push`.
+
 GitHub Actions runs the same suite on every push to `main` and on pull requests (`.github/workflows/ci.yml`).
 
 Vitest covers the pure logic: course generation (limits, ordering, 500 seeds all beatable by the flawless player, a human-like player reaching the table 2–20 % of the time), double jump, holes, wall and combo, every hazard type in isolation, the frozen DEAD state, the ending pool and no-repeat picker, and journal persistence. Rendering is verified with headless Chrome screenshots (`?autoplay=1&advance=S`).
