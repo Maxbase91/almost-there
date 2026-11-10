@@ -1,6 +1,6 @@
 # Almost There: Visual Design
 
-Status: v6 (2026-10). Written from `index.html`, `src/render.js` and `src/sprites.js`. Game feel and hazard
+Status: v8 (2026-11). Written from `index.html`, `src/render.js`, `src/scenery.js` and `src/sprites.js`. Game feel and hazard
 behaviour are in [GAME-DESIGN.md](GAME-DESIGN.md).
 
 ## 1. Principles
@@ -37,6 +37,7 @@ behaviour are in [GAME-DESIGN.md](GAME-DESIGN.md).
 - Logical canvas 960×540 (16:9), letterboxed to the viewport by `fit()`; sprites drawn at 3× their sheet size.
 - Overlays (`.layer`) are full-stage flex containers centring one `.panel`.
 - HUD buttons (SND, LOG) bottom right; smaller under 600 px width.
+- Title panel: level select in two columns (CAKE RUNS, OFFICE RUNS), one column in portrait; each button shows the level's best distance or win count. The panel scrolls if a small screen cannot fit it; short landscape phones hide the two hint lines.
 - Portrait phones under 600 px show "ROTATE YOUR PHONE FOR A BIGGER CAKE".
 
 ## 5. Components
@@ -47,9 +48,14 @@ behaviour are in [GAME-DESIGN.md](GAME-DESIGN.md).
 | Button | `.btn` | default (gold), `.ghost` (paper), `.pink` (red), `.mint`; pressed state shifts by one `--px` |
 | Overlays | `#loading`, `#title`, `#dead`, `#win`, `#lost`, `#dialog`, `#terms`, `#journal` | Shown/hidden with the `hidden` attribute |
 | Journal card | `.card` | `.seen` (solid border, white) vs unseen (dashed, faded) |
+| Level button | `.lvl-col .btn` | selected (gold) vs `.ghost`; `.lvl-best` holds the best distance |
+
+Scenes (D22) are drawn from level data by `src/scenery.js` on the same 3 px grid: outdoor stretches have six sky
+bands, an orb, two parallax silhouette layers and tiled or flat ground; indoor stretches have a wall with one
+feature per 260 px segment and a floor. Each stretch names an ambient effect. Vocabulary: [LEVELS.md](LEVELS.md).
 
 Art sources: Kenney "Pixel Platformer", "Tiny Farm", "UI Pack - Pixel Adventure" (CC0) plus hand-pixeled sprites in
-`src/pixelart.js`. Full list: [`assets/LICENSES.md`](../assets/LICENSES.md).
+`src/pixelart.js` and `src/levels/*.js`. Full list: [`assets/LICENSES.md`](../assets/LICENSES.md).
 
 ## 6. Accessibility (current state)
 
@@ -60,7 +66,9 @@ Art sources: Kenney "Pixel Platformer", "Tiny Farm", "UI Pack - Pixel Adventure"
   instantly and a two-finger gesture on the play field cannot zoom mid-run. Pinch works on panels, HUD and letterbox.
 - `prefers-reduced-motion: reduce` (read every tick, so an OS change applies live): no camera shake, no crack jitter,
   and blackouts become a smooth dim to 60 % with the spotlight ("WHO DIMMED THE LIGHTS") instead of a flicker into
-  black. Physics are unchanged; the dimmed stretch is easier to read than a full blackout.
+  black. The hit flash, zoom punch, lightning, double-jump afterimage, running dust, blinking lights and the banner
+  slide are off and ambient effects are halved (D24). Physics are unchanged; the dimmed stretch is easier to read
+  than a full blackout.
 - One visually hidden `h1` (`.sr-only`) names the page for screen readers and crawlers.
 - Phones: the stage sits inside `env(safe-area-inset-*)` (notch, home indicator), touch targets are at least 44 pt (`pointer: coarse`), portrait menus are full-screen scrollable panels, and the area around the stage is a jump button.
 - Remaining gaps:

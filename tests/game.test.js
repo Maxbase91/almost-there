@@ -7,6 +7,11 @@ import {
   fakeBest,
   launchCake,
   generateCourse,
+  makeProfile,
+  stretchIndex,
+  popupLevel,
+  POOL_LIMITS,
+  GROWER,
   courseFromSpec,
   mulberry32,
   runSpeed,
@@ -67,9 +72,57 @@ describe('course generation (D9, D10)', () => {
       const last = hz[hz.length - 1];
       expect(last.anchorX + last.w).toBeLessThan(TABLE_X - 200);
     }
-    expect(Math.max(...counts)).toBeGreaterThanOrEqual(COURSE.maxHazards - 1);
+    // The v8 slots (boomerang, canopy, popup) take more ground each, so the fullest course has one slot fewer than in v7.
+    expect(Math.max(...counts)).toBeGreaterThanOrEqual(COURSE.maxHazards - 2);
     expect([...typesSeen].sort()).toEqual(Object.keys(HAZARD_TYPES).sort());
     void isPit;
+  });
+});
+
+describe('course profiles (D22)', () => {
+  const typesOf = (hz) => new Set(hz.map((h) => h.type));
+  it('the default profile is what generateCourse uses when none is given', () => {
+    const key = (hz) => hz.map((h) => [h.type, h.anchorX, h.w]);
+    expect(key(generateCourse(mulberry32(5)))).toEqual(key(generateCourse(mulberry32(5), makeProfile())));
+  });
+
+  it('a weight of 0 removes a type, a heavy weight makes it common, limits still hold', () => {
+    const none = makeProfile({ weights: { bee: 0, beam: 0, popup: 0, creep: 0 } });
+    const many = makeProfile({ weights: { creep: 2.5 }, limits: { creep: POOL_LIMITS.creep + 1 } });
+    let creeps = 0;
+    let base = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const t = typesOf(generateCourse(mulberry32(seed), none));
+      for (const banned of ['bee', 'popup', 'creep']) expect(t.has(banned)).toBe(false);
+      const hz = generateCourse(mulberry32(seed), many);
+      const n = hz.filter((h) => h.type === 'creep').length;
+      expect(n).toBeLessThanOrEqual(POOL_LIMITS.creep + 1);
+      creeps += n;
+      base += generateCourse(mulberry32(seed)).filter((h) => h.type === 'creep').length;
+    }
+    expect(creeps).toBeGreaterThan(base * 1.5);
+  });
+
+  it('ice and blackouts only appear in the stretches a profile allows', () => {
+    const p = makeProfile({ stretches: [{ ice: true, dark: 2 }, { ice: false, dark: 0 }, { ice: false, dark: 0 }, { ice: true, dark: 1 }] });
+    const seen = { ice: new Set(), blackout: new Set() };
+    for (let seed = 0; seed < 400; seed++) {
+      for (const h of generateCourse(mulberry32(seed), p)) if (h.type === 'ice' || h.type === 'blackout') seen[h.type].add(stretchIndex(h.anchorX));
+    }
+    expect([...seen.ice].sort()).toEqual([0, 3]);
+    expect([...seen.blackout].sort()).toEqual([0, 3]);
+    // long blackouts belong to dark: 2 stretches only
+    const long = generateCourse(mulberry32(1), p).filter((h) => h.type === 'blackout' && h.night);
+    for (const h of long) expect(stretchIndex(h.anchorX)).toBe(0);
+  });
+
+  it('a run keeps its profile across retries', () => {
+    const p = makeProfile({ weights: { bee: 0 } });
+    const s0 = createState({ rng: mulberry32(1), profile: p });
+    const s1 = startRun(s0, { seed: 3 });
+    expect(s1.profile).toBe(p);
+    expect(startRun(s1, { seed: 4 }).profile).toBe(p);
+    expect(s1.hazards.some((h) => h.type === 'bee')).toBe(false);
   });
 });
 
@@ -173,7 +226,7 @@ describe('double jump (D9)', () => {
   });
 
   it('wall and wide hole cannot be cleared with single jumps but can with the perfect player', () => {
-    for (const type of ['wall', 'pitwide']) {
+    for (const type of ['wall', 'pitwide', 'grower']) {
       const singleOnly = (st) => {
         const i = perfectInput(st);
         if (!st.player.onGround) return { jumpPressed: false, jumpHeld: i.jumpHeld };
@@ -210,7 +263,7 @@ describe('double jump (D9)', () => {
 });
 
 describe('each hazard type in isolation', () => {
-  for (const type of Object.keys(HAZARD_TYPES).filter((t) => !['bee', 'peel', 'wind', 'beam', 'chick', 'slime', 'mole', 'bro', 'pendulum', 'trampoline', 'egg', 'knife', 'blackout', 'ice'].includes(t))) {
+  for (const type of Object.keys(HAZARD_TYPES).filter((t) => !['bee', 'peel', 'wind', 'beam', 'chick', 'slime', 'mole', 'bro', 'pendulum', 'trampoline', 'egg', 'knife', 'blackout', 'ice', 'canopy', 'popup'].includes(t))) {
     it(`${type}: kills a non-jumper and is cleared by the perfect player`, () => {
       const x = type === 'pig' ? 2400 : 1500;
       const dead = withCourse([{ type, x }]);
@@ -388,6 +441,112 @@ describe('each hazard type in isolation', () => {
     expect(b.dark).toBe(1);
     runUntil(b, NO_INPUT, leftRunning);
     expect(b.phase).toBe(PHASE.WIN);
+  });
+
+  it('v8 creep: the hole starts sliding toward you from 6 m away and is a hole all along', () => {
+    const s = withCourse([{ type: 'creep', x: 1500 }]);
+    const c = s.hazards[0];
+    expect(isPit(c)).toBe(true);
+    runUntil(s, NO_INPUT, (st) => c.state === 'active');
+    expect(s.player.x).toBeLessThan(1500 - 580);
+    expect(s.events).toContain('quake');
+    runUntil(s, NO_INPUT, leftRunning);
+    expect(s.deadBy.type).toBe('creep');
+    expect(c.x).toBeLessThan(1500 - 60); // it met the runner well before its anchor
+  });
+
+  it('v8 grower: knee-high until you are close, then wall height before you arrive', () => {
+    const s = withCourse([{ type: 'grower', x: 1500 }]);
+    const gr = s.hazards[0];
+    expect(gr.h).toBe(HAZARD_TYPES.grower.h);
+    runUntil(s, NO_INPUT, (st) => gr.state === 'growing');
+    expect(s.player.x).toBeLessThan(1500 - 300);
+    runUntil(s, NO_INPUT, (st) => gr.state === 'grown');
+    expect(gr.h).toBe(GROWER.height);
+    expect(s.bursts.some((b) => b.kind === 'grow')).toBe(true);
+    expect(s.player.x).toBeLessThan(1500 - 200); // grown with time to react
+    runUntil(s, NO_INPUT, leftRunning);
+    expect(s.deadBy.type).toBe('grower');
+  });
+
+  it('v8 canopy: one hop over the fence passes, a double jump meets the bar, running under it is safe', () => {
+    const spec = [{ type: 'canopy', x: 1500, w: 300 }, { type: 'fence', x: 1640, combo: true, underCanopy: true }];
+    const ok = withCourse(spec);
+    runUntil(ok, perfectInput, leftRunning);
+    expect(ok.phase).toBe(PHASE.WIN);
+    // same jump, plus a second press at the top of it
+    const greedy = withCourse(spec);
+    runUntil(greedy, (st) => {
+      const i = perfectInput(st);
+      if (!st.player.onGround && st.player.vy > -40 && st.player.jumpsLeft > 0 && st.player.x > 1500) return { jumpPressed: true, jumpHeld: true };
+      return i;
+    }, leftRunning);
+    expect(greedy.phase).toBe(PHASE.DEAD);
+    expect(greedy.deadBy.type).toBe('canopy');
+    const runner = withCourse([{ type: 'canopy', x: 1500, w: 300 }]);
+    runUntil(runner, NO_INPUT, leftRunning);
+    expect(runner.phase).toBe(PHASE.WIN);
+  });
+
+  it('v8 boomerang: flies over at jump height, then comes back along the ground from behind', () => {
+    const s = withCourse([{ type: 'boomerang', x: 1500 }]);
+    const b = s.hazards[0];
+    runUntil(s, NO_INPUT, (st) => b.state === 'out');
+    expect(b.x).toBeGreaterThan(s.player.x + 500);
+    expect(s.events).toContain('flap');
+    runUntil(s, NO_INPUT, (st) => b.state === 'back' || st.phase !== PHASE.RUNNING);
+    expect(s.phase).toBe(PHASE.RUNNING); // a runner passes under the fly-over
+    expect(b.x).toBeLessThan(s.player.x);
+    expect(b.warn).toBe('WHOOSH');
+    expect(s.events).toContain('whoosh');
+    runUntil(s, NO_INPUT, leftRunning);
+    expect(s.deadBy.type).toBe('boomerang');
+    // jumping into the fly-over is the other way to lose
+    const jumper = withCourse([{ type: 'boomerang', x: 1500 }]);
+    const jb = jumper.hazards[0];
+    runUntil(jumper, (st) => ({ jumpPressed: st.player.onGround && jb.state === 'out' && jb.x - st.player.x < 220, jumpHeld: true }), (st) => st.phase !== PHASE.RUNNING || jb.state === 'back');
+    expect(jumper.phase).toBe(PHASE.DEAD);
+    expect(jumper.deadBy.type).toBe('boomerang');
+    expect(jumper.player.onGround).toBe(false);
+  });
+
+  it('v8 popup: covers the view for a stretch and changes nothing physical', () => {
+    const s = withCourse([{ type: 'popup', x: 1400, w: 420 }]);
+    expect(popupLevel(s)).toBeNull();
+    runUntil(s, NO_INPUT, (st) => st.popup != null, 10);
+    expect(s.player.x).toBeLessThan(1400); // the first window appears just before the stretch
+    expect(s.popup.k).toBeGreaterThanOrEqual(0);
+    runUntil(s, NO_INPUT, (st) => st.popup == null, 10);
+    expect(s.player.x).toBeGreaterThanOrEqual(1820);
+    runUntil(s, NO_INPUT, leftRunning);
+    expect(s.phase).toBe(PHASE.WIN);
+  });
+
+  it('v8: impacts report a burst spot and never touch the run rng', () => {
+    const s = withCourse([{ type: 'meteor', x: 1500 }]);
+    let draws = 0;
+    const rng = s.rng;
+    s.rng = () => {
+      draws++;
+      return rng();
+    };
+    let burst = null;
+    runUntil(s, NO_INPUT, (st) => {
+      burst = st.bursts.find((b) => b.kind === 'crate') ?? burst;
+      return st.hazards[0].state === 'landed';
+    });
+    expect(burst).toMatchObject({ kind: 'crate', y: GROUND_Y });
+    expect(draws).toBe(0);
+  });
+
+  it('v8: the stretch counter follows the 25 m segments', () => {
+    const s = withCourse([]);
+    expect(s.stretch.i).toBe(0);
+    runUntil(s, NO_INPUT, (st) => st.player.x > 2600);
+    expect(s.stretch.i).toBe(1);
+    expect(s.stretch.t).toBeLessThan(0.5);
+    expect(stretchIndex(TABLE_X + 500)).toBe(3);
+    expect(stretchIndex(-50)).toBe(0);
   });
 
   it('v6: biomes change every 25 m', () => {

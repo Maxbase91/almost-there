@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HAZARD_TYPES } from '../src/game.js';
-import { THEMES, MODES, getTheme, isMode, hazardText, deathText, journalLabel } from '../src/themes.js';
+import { THEMES, MODES, LEVEL_SPRITES, getTheme, isMode, hazardText, deathText, journalLabel } from '../src/themes.js';
 import { buildPixelSprites, PIXEL_NAMES } from '../src/pixelart.js';
 import { SPRITES } from '../src/sprites.js';
 import { loadJournal, saveJournal, recordRun, STORAGE_KEY } from '../src/journal.js';
@@ -11,7 +11,7 @@ function fakeStorage() {
 }
 
 describe('themes', () => {
-  it('knows exactly the cake and office modes and falls back to cake', () => {
+  it('knows exactly the cake and office families and falls back to cake', () => {
     expect(MODES).toEqual(['cake', 'office']);
     expect(isMode('office')).toBe(true);
     expect(isMode('__proto__')).toBe(false);
@@ -28,12 +28,13 @@ describe('themes', () => {
   });
 
   it('only points sprite slots at sprites that exist', () => {
-    const known = new Set([...PIXEL_NAMES, ...Object.keys(SPRITES)]);
+    const known = new Set([...PIXEL_NAMES, ...Object.keys(SPRITES), ...Object.keys(LEVEL_SPRITES)]);
     for (const theme of Object.values(THEMES)) for (const name of Object.values(theme.art)) expect(known.has(name), name).toBe(true);
   });
 
   it('builds all pixel art (no ragged rows, no unknown colours)', () => {
     expect(() => buildPixelSprites()).not.toThrow();
+    expect(() => buildPixelSprites(LEVEL_SPRITES)).not.toThrow();
   });
 
   it('keeps the cake death screen copy word for word', () => {
@@ -48,6 +49,10 @@ describe('themes', () => {
     expect(at('crack', { state: 'open', bro: true })).toBe('You fell in the dip.');
     expect(at('meteor')).toBe('A crate fell on you.');
     expect(at('bro')).toBe('The finance bro got you.');
+    expect(at('creep')).toBe('You fell in the sinkhole.');
+    expect(at('grower')).toBe('You hit the beanstalk.');
+    expect(at('canopy')).toBe('You hit the party bunting.');
+    expect(at('boomerang')).toBe('The boomerang came back.');
     expect(deathText(cake, { type: 'dog' }).line).toBe(HAZARD_TYPES.dog.line);
   });
 
@@ -57,6 +62,9 @@ describe('themes', () => {
     expect(deathText(office, { type: 'fence' }).title).toBe('You hit the printer.');
     expect(deathText(office, { type: 'crack', bro: true }).title).toBe('You fell in the backlog.');
     expect(deathText(office, { type: 'chick' }).line).toMatch(/blockers/);
+    expect(deathText(office, { type: 'creep' }).title).toBe('The goalposts moved under you.');
+    expect(deathText(office, { type: 'canopy' }).title).toBe('You hit the glass ceiling.');
+    expect(deathText(office, { type: 'boomerang' }).title).toBe('The delegated task came back.');
   });
 
   it('labels the run log per theme', () => {
@@ -66,7 +74,7 @@ describe('themes', () => {
   });
 
   it('translates every bubble the simulation emits for animals and bros', () => {
-    for (const word of ['MOO', 'BAWK', 'sss', 'BUY THE DIP', 'HODL', 'OINK', 'CAKE!']) expect(THEMES.office.say[word], word).toBeTruthy();
+    for (const word of ['MOO', 'BAWK', 'sss', 'BUY THE DIP', 'HODL', 'OINK', 'CAKE!', 'WHOOSH']) expect(THEMES.office.say[word], word).toBeTruthy();
   });
 });
 

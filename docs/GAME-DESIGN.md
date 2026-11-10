@@ -1,6 +1,6 @@
 # Almost There — Game Design
 
-Status: v6 spec (2026-10-11). Supersedes v5 (fewer hazards, one biome).
+Status: v8 spec (2026-11-10): ten levels, 32 hazard types. Supersedes v6 (two modes, 27 types).
 Decisions behind this spec are logged in [DECISIONS.md](DECISIONS.md).
 
 ## 1. Premise
@@ -41,7 +41,8 @@ Phases: `TITLE → RUNNING → DEAD | WIN` (`ENDING → LOST` only with `?ending
 - Length 100 m (10000 px). Player starts at 1.2 m. Table at 100 m.
 - 16–17 slots walked from 4.8 m toward 96.5 m (plus gust stretches). The gap between slots shrinks from 0.8 s to 0.55 s of running (at the local speed); anything that needs a double jump (wall, holes, combo) gets +0.7 s after it, moving hazards, pigs, bees, beams and peels get run-up before them. A course stops early when it runs out of room; the average is ≈ 13 hazards.
 - Extra room: +0.7 s after anything that needs a double jump (the player is airborne ≈ 1.3 s), +0.3 s before a dog or skateboard, +0.5 s before a wall, +0.8 s before a pig, +0.6 s before a bee, and a pigeon always gets its full dive run-up.
-- Limits per course: exactly 1–2 pigs (never first; one is guaranteed), ≤ 3 bees, ≤ 1 pigeon, ≤ 1 wall, ≤ 1 wide hole, ≤ 1 combo; no type twice in a row.
+- Limits per course: 1–3 pigs (never first; one is guaranteed), ≤ 3 bees, ≤ 1 pigeon, ≤ 1 wall, ≤ 1 wide hole, ≤ 1 combo, ≤ 1 boomerang, ≤ 2 each of creep, grower, canopy and popup; no type twice in a row; chasers (pig, pigeon, boomerang) at least two slots apart; a popup never directly follows a blackout or the other way round.
+- `generateCourse(rng, profile)`: a level's profile scales pool weights, may raise a limit by one and says which stretches allow ice and blackouts (§3b, D22). The default profile is the birthday-cake course.
 
 ### Hazard pool
 
@@ -70,6 +71,11 @@ Phases: `TITLE → RUNNING → DEAD | WIN` (`ENDING → LOST` only with `?ending
 | Knives | Three knives fall with 0.45 s glints and stay stuck as 30 px obstacles. | Dodge the drop, hop the stuck knives | hand-pixeled knife |
 | Blackout | Lights flicker, then darkness except a circle around you (1 s; 1.5 s at night). Nothing physical changes. | Remember what you saw | render overlay |
 | Ice (snow) | A stretch where every landing slides 0.35 s with no jump control. | Land early | ice tiles |
+| Creep (v8) | A 190 px hole that starts sliding toward you at 70 px/s once you are within 6 m. | Jump earlier than it looks | Hole with crumbling rim, or goalposts |
+| Grower (v8) | Knee-high (36 px) until you are ≈ 1.25 s away, then shoots up to wall height in 0.3 s. | Jump + double jump, like the wall | Beanstalk, or a growing pile of paper |
+| Canopy (v8) | A bar 190 px up over 0.9 s of ground with a fence under it. A single jump (head at ≈ 172 px) fits under the bar; a double jump does not. | One hop over the fence, no second press | Bunting line, or a glass slab |
+| Boomerang (v8) | Appears ahead, flies over at bee height, turns around behind you and returns along the ground at pig speed. Edge marker on the return. | Stay down for the fly-over, jump the return | hand-pixeled boomerang / task card |
+| Popup (v8) | Not lethal. Fog (cake family) or windows (office family) cover the view ahead for ≈ 1.4 s; nothing is placed inside. | Remember what you saw | render overlay |
 | Gust | Not a hazard: a stretch of ground with a headwind (×0.8) or tailwind (×1.25), marked by leaves, announced by a label. Placed with normal spacing on both sides and held until you land, so it only disturbs timing. | Re-time your jumps | Leaves, label |
 | Dog | Sits until the player is within 4.5 m, then charges. | Jump as it arrives | Hand-pixeled dog with "!" |
 | Skateboard | Rolls toward the player from 6 m, random speed. | Jump | Hand-pixeled board |
@@ -78,7 +84,27 @@ Phases: `TITLE → RUNNING → DEAD | WIN` (`ENDING → LOST` only with `?ending
 
 Measured single-jump windows at base speed are 0.30–0.45 s per type; the speed ramp compresses them toward the end.
 
-## 3b. Biomes
+## 3b. Levels and stretches (D22)
+
+Ten levels in two families. A level reskins every hazard, brings four backdrops and a course profile; rules and
+physics are shared. How to write one: [LEVELS.md](LEVELS.md).
+
+| Family | Level | Carry → goal | Stretches (25 m each) | Plays like |
+| --- | --- | --- | --- | --- |
+| cake | Deliver the cake | birthday cake → party table | meadow, desert, snow, night | the original mix |
+| cake | Save the wedding | wedding cake → beach altar | beach, pier, palm jungle, sunset | wind, tide pools, seagulls |
+| cake | Pumpkin pie run | pie → haunted party | pumpkin field, graveyard, haunted forest, storm castle | dark, things that pop up and swing |
+| cake | Pizza before midnight | pizza box → hungry customer | high street, park, rooftops, neon district | traffic and things from above |
+| cake | Last present | present → tree | village, pine forest, frozen lake, aurora night | ice almost everywhere |
+| office | Ship the project | laptop → go-live demo | open plan, server room, cold meeting room, after hours | the original mix |
+| office | Close the quarter | quarterly report → board | finance floor, archive, boardroom, night desk | paper from above, a CFO behind |
+| office | Migrate to the cloud | database → cutover console | server hall, the cloud, legacy cave, 3 am war room | outages and holes |
+| office | Survive the offsite | flipchart → closing circle | hotel lobby, conference hall, ropes course, karaoke bar | trampolines, swings, queues |
+| office | Run the tender | signed contract → supplier | sourcing desk, supplier warehouse, legal library, negotiation room | committees and paperwork |
+
+The birthday-cake biomes below are that level's four stretches.
+
+### Birthday-cake biomes
 
 Four 25 m segments: **meadow**, **desert** (sand ground, orange hills, big sun; walls are giant cacti and skateboards are tumbleweeds), **snow** (snow ground, pale hills, snowmen, ice patches), **night** (stars, lanterns, darker and longer blackouts). Ground tiles and props swap at the boundary; ice only appears in snow, blackouts never in the meadow and twice as often at night.
 
@@ -91,7 +117,8 @@ All drawn with sprites (hero, cake, table, kid, pigeon, cat, referee, repo man, 
 
 - **Art:** pixel art at 3× (18 px tiles → 54 px). Kenney CC0 packs for tiles, hero, bird, backgrounds, props and UI; hand-pixeled sprites in `src/pixelart.js` for everything else. Sources in `assets/LICENSES.md`.
 - **Parallax:** pale far layer (0.15), green hills (0.4), clouds (0.3), ground.
-- **Juice:** landing dust, double-jump puff, hit-stop and shake on death, speed lines above 1.22×, cake bob.
+- **Juice:** landing dust, running dust, double-jump puff and afterimage, hit-stop, shake, a soft flash and a zoom punch on death, speed lines above 1.22×, cake bob, debris on impacts, fireworks on a win, a banner naming each stretch.
+- **Ambient (D24):** per stretch: snow, rain, storm, leaves, petals, embers, fireflies, bats, sea spray, fog, paper, sparks, dust, aurora, music notes. Reduced motion halves it and drops every flash.
 - **HUD:** pixel panels with distance and honest progress, speed chevrons, tries, wins, best distance, sound state; "HEADWIND/TAILWIND" and "SLIDING!" labels.
 - **UI:** title, fail card, loss card, dialog, terms and journal are DOM panels in the same pixel style with the Press Start 2P font.
 - **Audio:** CC0 chiptune loop (Lasso Lady) + Kenney SFX for jump, double jump, hit, oink, flap, fanfare, loss, clicks. Starts on the first gesture; mute button and `M` key, persisted.
@@ -100,14 +127,14 @@ All drawn with sprites (hero, cake, table, kid, pigeon, cat, referee, repo man, 
 
 Desktop: Space / ↑ / W, M to mute. Mobile: tap anywhere (the canvas or the space around it); second tap mid-air double-jumps. Landscape shows the full 960 px view; portrait crops it to 600 px around the same centre so sprites draw about 1.6× bigger (480 px of lookahead instead of 672, D21). The layout stays inside the iPhone safe area, menus go full screen in portrait, and touch targets are at least 44 pt.
 
-Modes (D20): **Deliver the cake** and **Ship the project** share every hazard and rule; the office mode only reskins them (see `src/themes.js`).
+Levels (D20, D22): ten levels in two families share every hazard and rule; a level reskins them and tunes the mix (§3b, `src/themes.js`, `src/levels/`).
 
 ## 7. Non-goals
 
-Deployment, leaderboards, course preview or seed sharing UI, pig ending, branching routes.
+Leaderboards, course preview or seed sharing UI, level unlocks, pig ending, branching routes.
 
 ## 8. Dev parameters
 
-`?seed=N`, `?course=fence@700,pig@2600` (type@x px), `?autopilot=1` (flawless player), `?ending=<id>`,
+`?seed=N`, `?course=fence@700,pig@2600` (type@x px), `?level=<id>` (`cake wedding pumpkin pizza xmas office quarter cloud offsite tender`), `?autopilot=1` (flawless player), `?ending=<id>`,
 `?autoplay=1` (start without a click), `?advance=S` (step S seconds at boot, for headless screenshots), `?endings=1` (joke endings at the table),
 `?debug` (`window.__almost`: `state`, `journal`, `restart()`, `advance(s)`, `press()`).

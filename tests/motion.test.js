@@ -42,6 +42,22 @@ describe('reduced motion (prefers-reduced-motion)', () => {
     expect(blackoutRun(true).track).toEqual(blackoutRun(false).track);
   });
 
+  it('a popup stretch reports the same cover in both modes and leaves the run untouched', () => {
+    const run = (reducedMotion) => {
+      const s = startRun(createState({ rng: mulberry32(3) }), { course: courseFromSpec([{ type: 'popup', x: 1400, w: 450 }]), wind: false });
+      s.reducedMotion = reducedMotion;
+      const out = [];
+      for (let t = 0; t < 8 && s.phase === PHASE.RUNNING; t += DT) {
+        step(s, NO_INPUT, DT);
+        out.push([s.player.x, s.player.y, s.popup?.k ?? -1]);
+      }
+      return out;
+    };
+    const calm = run(true);
+    expect(calm).toEqual(run(false));
+    expect(calm.some(([, , k]) => k > 0.5)).toBe(true);
+  });
+
   it('blackoutLevel is 0 with no blackout ahead in either mode', () => {
     const s = startRun(createState({ rng: mulberry32(1) }), { course: courseFromSpec([]), wind: false });
     expect(blackoutLevel(s)).toBe(0);

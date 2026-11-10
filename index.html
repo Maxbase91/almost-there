@@ -97,7 +97,17 @@
     #title .panel { background: var(--paper); }
     #title .logo { font-size: clamp(18px, 4vw, 34px); color: var(--red); text-shadow: var(--px) var(--px) 0 var(--ink); margin-bottom: 14px; }
     #title .sub { color: var(--wood-dark); }
-    #mode-buttons { display: flex; flex-wrap: wrap; justify-content: center; }
+    /* Level select: one column per family; the panel scrolls if a small screen cannot fit it. */
+    #title .panel { max-height: 100%; overflow-y: auto; }
+    #mode-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; align-items: start; margin: 4px 0 8px; }
+    .lvl-col { display: flex; flex-direction: column; min-width: 0; }
+    .lvl-col[hidden] { display: none; }
+    .lvl-head { color: var(--wood-dark); margin: 6px 0 0; }
+    .lvl-col .btn {
+      margin: 6px 0 0; padding: 9px 10px; font-size: clamp(8px, 1.2vw, 11px); text-align: left;
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px;
+    }
+    .lvl-best { font-size: clamp(6px, 0.9vw, 8px); opacity: 0.75; white-space: nowrap; }
     #lost-record { color: #2f8f4e; }
     #lost-record[hidden] { display: none; }
     #hud-buttons { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; }
@@ -153,6 +163,8 @@
       .muted { font-size: 8px; }
       .btn { margin-top: 6px; padding: 10px 14px; font-size: 10px; }
       #title .logo { font-size: 20px; margin-bottom: 6px; }
+      #title .hint { display: none; }
+      .lvl-col .btn { margin-top: 5px; padding: 6px 10px; font-size: 9px; }
       #terms-area { height: 150px; }
     }
     /* Portrait phones: the stage is a band, so menus take the whole screen and scroll if needed. */
@@ -166,6 +178,9 @@
     body.portrait h2 { font-size: 15px; }
     body.portrait .btn { font-size: 12px; padding: 14px 16px; }
     body.portrait #title .logo { font-size: 24px; }
+    body.portrait #mode-buttons { grid-template-columns: 1fr; }
+    body.portrait .lvl-col .btn { font-size: 11px; padding: 12px 12px; }
+    body.portrait .lvl-best { font-size: 9px; }
     body.portrait #terms-area { height: 45vh; }
     body.portrait #rotate-hint { display: block; }
     /* Portrait has spare room above the stage: keep the buttons out of the play area. */
@@ -192,15 +207,14 @@
     <div id="title" class="layer" hidden>
       <div class="panel">
         <div class="logo">ALMOST THERE</div>
-        <p>100 m. One delivery. Pick it.</p>
-        <p class="sub">Jump what you can. Duck what you can't.<br>Tap again mid-air to double jump.</p>
-        <p class="muted">Almost nobody makes it. Try anyway.</p>
-        <p class="muted" id="version">v7 · 100 m</p>
-        <p class="muted">SPACE / ↑ / TAP · hold for a floatier jump · M to mute</p>
+        <p class="sub" id="pitch">Carry the cake 100 m to the party.</p>
         <div id="mode-buttons">
-          <button class="btn" id="start" type="button">DELIVER THE CAKE</button>
-          <button class="btn" id="start-office" type="button">SHIP THE PROJECT</button>
+          <div class="lvl-col" id="levels-cake"><p class="lvl-head">CAKE RUNS</p></div>
+          <div class="lvl-col" id="levels-office"><p class="lvl-head">OFFICE RUNS</p></div>
         </div>
+        <p class="muted hint">Jump what you can. Duck what you can't. Tap again mid-air to double jump.</p>
+        <p class="muted hint">SPACE / ↑ / TAP · hold for a floatier jump · M to mute</p>
+        <p class="muted" id="version">v8 · 10 levels · 100 m each · almost nobody makes it</p>
       </div>
     </div>
 
@@ -282,6 +296,6 @@
   <div id="rotate-hint">ROTATE FOR THE FULL VIEW</div>
   <div id="safe-area" aria-hidden="true"></div>
 
-  <script type="module" src="src/main.js?v=7"></script>
+  <script type="module" src="src/main.js?v=8"></script>
 </body>
 </html>

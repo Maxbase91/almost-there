@@ -20,9 +20,33 @@ export const PLAYER_W = 30;
 export const PLAYER_H = 62;
 
 export const BIOMES = ['meadow', 'desert', 'snow', 'night'];
+// The course is four 25 m stretches. Levels (src/themes.js) give each stretch its own backdrop and rules.
+export function stretchIndex(x) {
+  return Math.max(0, Math.min(3, Math.floor((x / TABLE_X) * 4)));
+}
 export function biomeAt(x) {
-  const k = Math.max(0, Math.min(3, Math.floor((x / TABLE_X) * 4)));
-  return BIOMES[k];
+  return BIOMES[stretchIndex(x)];
+}
+
+// A course profile is what a level may change about generation (D22): pool weights, per-type limits and
+// which stretches allow ice and blackouts (dark: 0 never, 1 normal, 2 twice as often and longer).
+// The default is the birthday-cake course: ice only in the snow, no blackout in the meadow, long ones at night.
+export const DEFAULT_PROFILE = Object.freeze({
+  weights: Object.freeze({}),
+  limits: Object.freeze({}),
+  stretches: Object.freeze([
+    Object.freeze({ ice: false, dark: 0 }),
+    Object.freeze({ ice: false, dark: 1 }),
+    Object.freeze({ ice: true, dark: 1 }),
+    Object.freeze({ ice: false, dark: 2 }),
+  ]),
+});
+export function makeProfile({ weights = {}, limits = {}, stretches = null } = {}) {
+  return {
+    weights: { ...weights },
+    limits: { ...limits },
+    stretches: [0, 1, 2, 3].map((i) => ({ ...DEFAULT_PROFILE.stretches[i], ...(stretches?.[i] ?? {}) })),
+  };
 }
 
 export function runSpeed(x) {
@@ -60,7 +84,19 @@ export const HAZARD_TYPES = {
   knife: { label: 'knife', w: 12, h: 30, line: 'Who is throwing these?' },
   blackout: { label: 'blackout', w: 500, h: 0, line: '' }, // not lethal: lights go out
   ice: { label: 'ice', w: 500, h: 0, line: 'Nothing to grip.' }, // not lethal itself: landings slide
+  // v8 (D23)
+  creep: { label: 'sinkhole', w: 190, h: 0, line: 'It was further away a second ago.' },
+  grower: { label: 'beanstalk', w: 54, h: 36, line: 'It was a sprout a second ago.' },
+  canopy: { label: 'party bunting', w: 260, h: 18, line: 'One hop was plenty. You took two.' },
+  boomerang: { label: 'boomerang', w: 44, h: 24, line: 'It came back. They always do.' },
+  popup: { label: 'fog bank', w: 500, h: 0, line: '' }, // not lethal: the view ahead is covered
 };
+const CREEP_TRIGGER = 600;
+const CREEP_SPEED = 70;
+export const GROWER = { triggerSec: 1.25, grow: 0.3, height: 128 }; // sprout → wall height while you are still ≈1 s away
+export const CANOPY_CLEARANCE = 190; // underside above the ground: a single jump (head ≈172 px) fits, a double jump does not
+export const BOOMERANG = { spawnAhead: 620, outSpeed: 240, behind: 380 };
+export const POPUP = { lead: 0.3 }; // seconds before the stretch at which the first window appears
 const COW_TRIGGER = 500;
 const COW_SPEED = 40;
 const CHICK_TRIGGER = 560;
@@ -183,7 +219,13 @@ export function makeHazard(type, x, extra = {}) {
     h.y = -200;
     h.visible = false;
   }
-  if (type === 'blackout' || type === 'ice') h.visible = false;
+  if (type === 'blackout' || type === 'ice' || type === 'popup') h.visible = false;
+  if (type === 'canopy') h.y = GROUND_Y - CANOPY_CLEARANCE; // underside
+  if (type === 'boomerang') {
+    h.x = -1000;
+    h.y = GROUND_Y - BEE_HOVER_Y;
+    h.visible = false;
+  }
   if (type === 'pig') {
     // The pig closes PIG_LEAD at (MULT-1)× the player's speed, so the pass happens PIG_LEAD/(MULT-1) px after the trigger.
     h.triggerX = x - PIG_LEAD / (PIG_SPEED_MULT - 1);
@@ -223,33 +265,46 @@ const POOL = [
   ['knives', 1.0],
   ['blackout', 1.4],
   ['ice', 1.2],
+  // v8
+  ['creep', 1.1],
+  ['grower', 1.0],
+  ['canopy', 1.1],
+  ['boomerang', 1.0],
+  ['popup', 1.1],
 ];
-const V6_LIMITS = { cow: 2, chickens: 2, slime: 3, snake: 2, mole: 2, bro: 2, pendulum: 2, trampoline: 2, eggrain: 2, knives: 2, blackout: 3, ice: 2 };
+// Most of one type per course. Everything listed in NOT_FIRST also never opens a course.
+const LIMITS = {
+  cow: 2, chickens: 2, slime: 3, snake: 2, mole: 2, bro: 2, pendulum: 2, trampoline: 2, eggrain: 2, knives: 2, blackout: 3, ice: 2,
+  pig: 3, bee: 3, meteor: 2, crack: 2, peel: 2, wind: 3, beam: 5, pigeon: 1, wall: 1, pitwide: 1, combo: 1,
+  creep: 2, grower: 2, canopy: 2, boomerang: 1, popup: 2,
+};
+const NOT_FIRST = new Set(['cow', 'chickens', 'slime', 'snake', 'mole', 'bro', 'pendulum', 'trampoline', 'eggrain', 'knives', 'blackout', 'ice', 'pig', 'bee', 'meteor', 'crack', 'peel', 'beam', 'creep', 'grower', 'canopy', 'boomerang', 'popup']);
+export const POOL_TYPES = POOL.map(([t]) => t);
+export const POOL_LIMITS = Object.freeze({ ...LIMITS });
+// Things that chase from behind (or dive) need the player's full attention: keep them two slots apart.
+const CHASERS = ['pig', 'pigeon', 'boomerang'];
 
-function pickType(rng, prev, counts, slotIndex, slots, biome = 'meadow') {
+function pickType(rng, prev, counts, slotIndex, slots, stretch, profile) {
   // Every course has a pig (D4/D10): if none so far, the last slot is the pig.
   if (slotIndex === slots - 1 && !(counts.pig ?? 0)) return 'pig';
-  const candidates = POOL.filter(([t]) => {
+  const weight = (t, w) => w * (profile.weights[t] ?? 1) * (t === 'blackout' && stretch.dark === 2 ? 2 : 1);
+  const candidates = POOL.filter(([t, w]) => {
     if (t === prev) return false;
-    if (V6_LIMITS[t] != null && (slotIndex === 0 || (counts[t] ?? 0) >= V6_LIMITS[t])) return false;
-    if (t === 'ice' && biome !== 'snow') return false;
-    if (t === 'blackout' && biome === 'meadow') return false;
-    if (t === 'pig' && (counts.pig ?? 0) >= 3) return false;
-    if (t === 'pig' && slotIndex === 0) return false; // needs run-up
-    if (t === 'bee' && (slotIndex === 0 || (counts.bee ?? 0) >= 3)) return false;
-    if (['meteor', 'crack', 'peel'].includes(t) && (slotIndex === 0 || (counts[t] ?? 0) >= 2)) return false;
-    if (t === 'wind' && (counts.wind ?? 0) >= 3) return false;
-    if (t === 'beam' && (slotIndex === 0 || (counts.beam ?? 0) >= 5)) return false;
-    if (['pigeon', 'wall', 'pitwide', 'combo'].includes(t) && (counts[t] ?? 0) >= 1) return false;
-    if (t === 'pigeon' && (counts.pig ?? 0) > 0 && slotIndex - (counts.lastPigSlot ?? -9) < 2) return false;
-    if (t === 'pig' && (counts.pigeon ?? 0) > 0 && slotIndex - (counts.lastPigeonSlot ?? -9) < 2) return false;
-    void slots;
+    if (weight(t, w) <= 0) return false;
+    if (slotIndex === 0 && NOT_FIRST.has(t)) return false;
+    const max = profile.limits[t] ?? LIMITS[t];
+    if (max != null && (counts[t] ?? 0) >= max) return false;
+    if (t === 'ice' && !stretch.ice) return false;
+    if (t === 'blackout' && !stretch.dark) return false;
+    // Two stretches of not seeing anything back to back is a coin flip, not a challenge.
+    if ((t === 'popup' && prev === 'blackout') || (t === 'blackout' && prev === 'popup')) return false;
+    if (CHASERS.includes(t) && CHASERS.some((c) => c !== t && (counts[c] ?? 0) > 0 && slotIndex - (counts.lastSlot?.[c] ?? -9) < 2)) return false;
     return true;
   });
-  const total = candidates.reduce((a, [t, w]) => a + (t === 'blackout' && biome === 'night' ? w * 2 : w), 0);
+  const total = candidates.reduce((a, [t, w]) => a + weight(t, w), 0);
   let r = rng() * total;
   for (const [t, w] of candidates) {
-    r -= t === 'blackout' && biome === 'night' ? w * 2 : w;
+    r -= weight(t, w);
     if (r <= 0) return t;
   }
   return candidates[candidates.length - 1][0];
@@ -261,7 +316,7 @@ function pickType(rng, prev, counts, slotIndex, slots, biome = 'meadow') {
  * fence followed closely by a pit: the landing point of a normal jump is inside the pit, so the player
  * must double jump. At most two pigs, one pigeon, one wall, one wide pit per course.
  */
-export function generateCourse(rng) {
+export function generateCourse(rng, profile = DEFAULT_PROFILE) {
   const target = COURSE.minHazards + Math.floor(rng() * (COURSE.maxHazards - COURSE.minHazards + 1));
   const hazards = [];
   const counts = {};
@@ -271,10 +326,10 @@ export function generateCourse(rng) {
   for (let i = 0; i < target && x <= COURSE.lastX; i++) {
     // Right after a beam, the next hazard may be a plain jump placed so close that the jump must come
     // the instant the beam ends (D17).
-    const type = tightNext ? (rng() < 0.5 ? 'fence' : 'pit') : pickType(rng, prev, counts, i, target, biomeAt(x));
+    const type = tightNext ? (rng() < 0.5 ? 'fence' : 'pit') : pickType(rng, prev, counts, i, target, profile.stretches[stretchIndex(x)], profile);
     counts[type] = (counts[type] ?? 0) + 1;
-    if (type === 'pig') counts.lastPigSlot = i;
-    if (type === 'pigeon') counts.lastPigeonSlot = i;
+    if (CHASERS.includes(type)) counts.lastSlot = { ...counts.lastSlot, [type]: i };
+    let slotEnd = null; // set by slots whose last hazard is not where the slot ends
     // A pigeon needs the previous obstacle finished before its dive starts (trigger is 480 px early).
     if (type === 'pigeon' && hazards.length) {
       const prevH = hazards[hazards.length - 1];
@@ -282,22 +337,25 @@ export function generateCourse(rng) {
     }
     // A hazard that moves toward the player closes part of the gap itself: give it room.
     if (['dog', 'skate', 'snake', 'cow'].includes(type) && hazards.length) x += 0.3 * runSpeed(x);
+    if (type === 'creep' && hazards.length) x += 0.5 * runSpeed(x); // the hole itself closes ≈110 px of the gap
     if (type === 'chickens' && hazards.length) x += 0.7 * runSpeed(x); // three runners closing in need a clean landing before them
     // "Do not jump" hazards and timed pop-ups must not sit where the previous landing happens.
     if (['slime', 'pendulum', 'mole', 'trampoline'].includes(type) && hazards.length) x += 0.6 * runSpeed(x);
     if (['eggrain', 'knives', 'bro'].includes(type) && hazards.length) x += 0.5 * runSpeed(x);
     // A bee must never hang where the landing from the previous jump happens; same for a banana peel.
     if ((type === 'bee' || type === 'peel') && hazards.length) x += 0.6 * runSpeed(x);
+    // The outbound boomerang must not cross a jump still in flight from the previous obstacle.
+    if (type === 'boomerang' && hazards.length) x += 0.9 * runSpeed(x);
     // Events need the player on the ground when they resolve.
     if ((type === 'meteor' || type === 'crack') && hazards.length) x += 0.5 * runSpeed(x);
     // A beam must start after the landing from whatever came before it.
-    if (type === 'beam' && hazards.length) x += 0.25 * runSpeed(x);
-    // A wall needs run-up: the double jump must start well before it.
-    if (type === 'wall' && hazards.length) x += 0.5 * runSpeed(x);
+    if ((type === 'beam' || type === 'canopy') && hazards.length) x += 0.25 * runSpeed(x);
+    // A wall needs run-up: the double jump must start well before it. A grower becomes one.
+    if ((type === 'wall' || type === 'grower') && hazards.length) x += 0.5 * runSpeed(x);
     // The pig passes under the player at its anchor; the player must be on the ground and ready before that.
     if (type === 'pig' && hazards.length) x += 0.8 * runSpeed(x);
     const ax = Math.round(x);
-    const extent = { pitwide: 330, combo: 300, peel: 520, pit: 210, crack: 130, wind: 800, beam: 900, chickens: 260, bro: 300, eggrain: 900, knives: 800, trampoline: 1000, blackout: 1150, ice: 1000, pendulum: 260, chickens: 300 }[type] ?? HAZARD_TYPES[type]?.w ?? 60;
+    const extent = { pitwide: 330, combo: 300, peel: 520, pit: 210, crack: 130, wind: 800, beam: 900, chickens: 260, bro: 300, eggrain: 900, knives: 800, trampoline: 1000, blackout: 1150, ice: 1000, pendulum: 260, creep: 210, canopy: 520, boomerang: 760, popup: 1000 }[type] ?? HAZARD_TYPES[type]?.w ?? 60;
     if (ax + extent > TABLE_X - 300) break;
     if (type === 'peel') {
       hazards.push(makeHazard('peel', ax));
@@ -324,8 +382,23 @@ export function generateCourse(rng) {
       const v = runSpeed(ax);
       hazards.push(makeHazard('trampoline', ax));
       hazards.push(makeHazard('beam', ax + Math.round(0.95 * v), { w: Math.round(1.0 * v), combo: true }));
+    } else if (type === 'canopy') {
+      // A fence under a high bar: one hop clears the fence, a double jump meets the bar.
+      const v = runSpeed(ax);
+      const w = Math.round(0.9 * v);
+      hazards.push(makeHazard('canopy', ax, { w }));
+      hazards.push(makeHazard('fence', ax + Math.round(0.45 * v), { combo: true, underCanopy: true }));
+      slotEnd = ax + w;
+    } else if (type === 'boomerang') {
+      // Nothing else may sit between the fly-over and the return pass from behind.
+      const v = runSpeed(ax);
+      const returnSec = (BOOMERANG.behind + HAZARD_TYPES.boomerang.w + 20) / (v + BOOMERANG.outSpeed) + PIG_LEAD / ((PIG_SPEED_MULT - 1) * v);
+      hazards.push(makeHazard('boomerang', ax));
+      slotEnd = ax + Math.round(returnSec * v) + HAZARD_TYPES.pig.w;
+    } else if (type === 'popup') {
+      hazards.push(makeHazard('popup', ax, { w: Math.round(1.4 * runSpeed(ax)) }));
     } else if (type === 'blackout') {
-      const night = biomeAt(ax) === 'night';
+      const night = profile.stretches[stretchIndex(ax)].dark === 2;
       hazards.push(makeHazard('blackout', ax, { w: Math.round((BLACKOUT.flicker + (night ? BLACKOUT.darkNight : BLACKOUT.dark)) * runSpeed(ax)), night }));
     } else if (type === 'ice') {
       hazards.push(makeHazard('ice', ax, { w: Math.round((1.2 + rng() * 0.6) * runSpeed(ax)) }));
@@ -342,14 +415,14 @@ export function generateCourse(rng) {
     const last = hazards[hazards.length - 1];
     // Puddles and cracks start with w = 0 (they form later): space the next slot from their full width.
     const nominalW = last.type === 'crack' ? last.dipW ?? HAZARD_TYPES.crack.w : last.type === 'puddle' ? HAZARD_TYPES.puddle.w : last.w;
-    const endX = last.anchorX + nominalW;
+    const endX = slotEnd ?? last.anchorX + nominalW;
     const k = Math.max(0, Math.min(1, endX / TABLE_X));
     let gapSec = COURSE.gapSecStart + (COURSE.gapSecEnd - COURSE.gapSecStart) * k;
     tightNext = type === 'beam' && rng() < 0.8;
     if (tightNext) gapSec = BEAM_TIGHT_GAP;
     // Obstacles that need a double jump keep the player airborne ≈1.3 s; whatever follows must not arrive under them.
-    if (['wall', 'pitwide', 'combo', 'pit', 'cow', 'bro', 'pendulum', 'mole'].includes(type)) gapSec += 0.7;
-    if (['bee', 'chickens', 'ice', 'trampoline'].includes(type)) gapSec += 0.4;
+    if (['wall', 'pitwide', 'combo', 'pit', 'cow', 'bro', 'pendulum', 'mole', 'creep', 'grower'].includes(type)) gapSec += 0.7;
+    if (['bee', 'chickens', 'ice', 'trampoline', 'boomerang'].includes(type)) gapSec += 0.4;
     if (type === 'eggrain' || type === 'knives') gapSec += 0.7;
     x = endX + gapSec * runSpeed(endX) + (tightNext ? 0 : rng() * 120);
     prev = type;
@@ -376,9 +449,9 @@ export function courseFromSpec(spec) {
   return spec.map(({ type, x, ...extra }) => makeHazard(type, x, extra));
 }
 
-export function createState({ rng = Math.random, attempts = 0, seed = null, course = null } = {}) {
+export function createState({ rng = Math.random, attempts = 0, seed = null, course = null, profile = DEFAULT_PROFILE } = {}) {
   const courseSeed = seed ?? Math.floor(rng() * 4294967296);
-  return {
+  const state = {
     phase: PHASE.TITLE,
     t: 0,
     rng,
@@ -403,10 +476,14 @@ export function createState({ rng = Math.random, attempts = 0, seed = null, cour
     table: { x: TABLE_X, y: GROUND_Y, visible: true, collapsed: false, vx: 0 },
     kid: { visible: true, say: '' },
     camera: { x: 0, shake: 0, zoom: 1, focusX: null, focusY: null, pan: 0 },
-    hazards: course ?? generateCourse(mulberry32(courseSeed)),
+    profile,
+    hazards: course ?? generateCourse(mulberry32(courseSeed), profile),
     overlay: null, // { title, lines, style }
     fx: [], // particles { x, y, vx, vy, life, color, size, char }
-    events: [], // one-frame events for audio/juice: 'jump' | 'doublejump' | 'land' | 'hit' | 'oink' | 'flap' | 'slip' | 'wind' | 'quake' | 'impact' | 'win'
+    events: [], // one-frame events for audio/juice: 'jump' | 'doublejump' | 'land' | 'hit' | 'oink' | 'flap' | 'slip' | 'wind' | 'quake' | 'impact' | 'whoosh' | 'win'
+    bursts: [], // one-frame impact spots { kind, x, y }: main.js turns them into particles, so the run rng stays untouched here
+    stretch: { i: 0, t: 0 }, // which 25 m stretch the player is in and for how long (banner in the renderer)
+    popup: null, // { k, id } while windows cover the view (set by 'popup' course slots)
     hitStop: 0,
     slide: 0, // seconds left of banana/ice slide (no jumping)
     iceSlide: false,
@@ -420,10 +497,12 @@ export function createState({ rng = Math.random, attempts = 0, seed = null, cour
     ending: null, // { def, t, data, waiting, done }
     lastEndingId: null,
   };
+  attachCake(state); // in the runner's hands from the first frame (it used to sit at the world origin on the title screen)
+  return state;
 }
 
-export function startRun(state, { seed = null, course = null, wind = true } = {}) {
-  const fresh = createState({ rng: state.rng, attempts: state.attempts + 1, seed, course });
+export function startRun(state, { seed = null, course = null, wind = true, profile = null } = {}) {
+  const fresh = createState({ rng: state.rng, attempts: state.attempts + 1, seed, course, profile: profile ?? state.profile ?? DEFAULT_PROFILE });
   fresh.phase = PHASE.RUNNING;
   fresh.lastEndingId = state.lastEndingId;
   if (!wind) fresh.hazards = fresh.hazards.filter((h) => h.type !== 'wind');
@@ -468,7 +547,7 @@ function overlaps(a, b) {
 }
 
 export function isPit(h) {
-  return h.type === 'pit' || h.type === 'pitwide' || (h.type === 'crack' && h.state === 'open');
+  return h.type === 'pit' || h.type === 'pitwide' || h.type === 'creep' || (h.type === 'crack' && h.state === 'open');
 }
 
 /** Whether a hazard can currently hurt the player. */
@@ -480,7 +559,8 @@ export function isLethal(h) {
   if (h.type === 'meteor') return h.state === 'landed' || h.state === 'impact';
   if (h.type === 'crack') return h.state === 'open';
   if (h.type === 'peel') return h.state === 'rest';
-  if (h.type === 'wind' || h.type === 'blackout' || h.type === 'ice') return false;
+  if (h.type === 'wind' || h.type === 'blackout' || h.type === 'ice' || h.type === 'popup') return false;
+  if (h.type === 'boomerang') return h.state === 'out' || h.state === 'back';
   if (h.type === 'mole') return h.popped;
   if (h.type === 'egg') return h.state === 'impact';
   if (h.type === 'knife') return h.state === 'landed' || h.state === 'impact';
@@ -662,6 +742,7 @@ function stepHazards(state, dt) {
             h.y = GROUND_Y;
             state.camera.shake = Math.max(state.camera.shake, 0.6);
             state.events.push('impact');
+            state.bursts.push({ kind: 'crate', x: h.x + h.w / 2, y: GROUND_Y });
           }
         } else if (h.state === 'impact') {
           h.state = 'landed'; // from now on a plain crate to jump over
@@ -677,6 +758,7 @@ function stepHazards(state, dt) {
         if (h.state === 'warn' && h.t >= CRACK_WARN) {
           h.state = 'open';
           h.w = h.dipW ?? HAZARD_TYPES.crack.w;
+          state.bursts.push({ kind: 'crack', x: h.x + h.w / 2, y: GROUND_Y });
         }
         break;
       case 'peel':
@@ -757,6 +839,7 @@ function stepHazards(state, dt) {
           h.state = 'up';
           h.popped = true;
           h.warn = '!';
+          state.bursts.push({ kind: 'mole', x: h.x + h.w / 2, y: GROUND_Y - 20 });
         }
         if (h.state === 'up' && h.t > MOLE_SPRAY + 0.6) h.warn = '';
         break;
@@ -807,6 +890,73 @@ function stepHazards(state, dt) {
         }
         break;
       }
+      case 'creep':
+        if (h.state === 'idle' && px > h.anchorX - CREEP_TRIGGER) {
+          h.state = 'active';
+          h.vx = -CREEP_SPEED;
+          h.warn = '!';
+          h.t = 0;
+          state.events.push('quake');
+        }
+        if (h.state === 'active') {
+          h.x += h.vx * dt;
+          if (h.t > 0.8) h.warn = '';
+          if (h.x + h.w < px - 200) {
+            h.state = 'done';
+            h.vx = 0;
+          }
+        }
+        break;
+      case 'grower':
+        if (h.state === 'idle' && px > h.anchorX - GROWER.triggerSec * runSpeed(h.anchorX)) {
+          h.state = 'growing';
+          h.t = 0;
+          h.warn = '!';
+          state.events.push('quake');
+        }
+        if (h.state === 'growing') {
+          const k = Math.min(1, h.t / GROWER.grow);
+          h.h = HAZARD_TYPES.grower.h + (GROWER.height - HAZARD_TYPES.grower.h) * k;
+          if (k >= 1) {
+            h.state = 'grown';
+            state.bursts.push({ kind: 'grow', x: h.x + h.w / 2, y: GROUND_Y - GROWER.height });
+          }
+        }
+        if (h.state === 'grown' && h.t > GROWER.grow + 0.6) h.warn = '';
+        break;
+      case 'boomerang':
+        if (h.state === 'idle') {
+          const va = runSpeed(h.anchorX);
+          if (px > h.anchorX - (BOOMERANG.spawnAhead * va) / (va + BOOMERANG.outSpeed)) {
+            h.state = 'out';
+            h.visible = true;
+            h.x = px + BOOMERANG.spawnAhead;
+            h.vx = -BOOMERANG.outSpeed;
+            h.warn = '!';
+            h.t = 0;
+            state.events.push('flap');
+          }
+        }
+        if (h.state === 'out') {
+          h.x += h.vx * dt;
+          h.y = GROUND_Y - BEE_HOVER_Y + Math.sin(h.t * 9) * 6;
+          if (h.t > 0.5) h.warn = '';
+          if (h.x + h.w < px - BOOMERANG.behind) {
+            // It turns around off-screen and comes back along the ground, exactly like the pig.
+            h.state = 'back';
+            h.x = px - PIG_LEAD;
+            h.y = GROUND_Y;
+            h.vx = runSpeed(px) * PIG_SPEED_MULT;
+            h.warn = 'WHOOSH';
+            h.t = 0;
+            state.events.push('whoosh');
+          }
+        } else if (h.state === 'back') {
+          h.x += h.vx * dt;
+          if (h.x > px + 40) h.warn = '';
+          if (h.x > px + 300) h.state = 'done';
+        }
+        break;
       case 'pig':
         if (h.state === 'idle' && px > h.triggerX) {
           h.state = 'active';
@@ -847,6 +997,17 @@ export function blackoutLevel(state) {
   return 0;
 }
 
+// Popup slots: windows cover the view ahead. k runs 0..1 from the first window to the end of the stretch.
+export function popupLevel(state) {
+  const p = state.player;
+  for (const h of state.hazards) {
+    if (h.type !== 'popup') continue;
+    const start = h.anchorX - POPUP.lead * runSpeed(h.anchorX);
+    if (p.x >= start && p.x < h.anchorX + h.w) return { k: (p.x - start) / (h.anchorX + h.w - start), id: h.anchorX };
+  }
+  return null;
+}
+
 // Gusts are course slots (type 'wind'): while the player is inside the stretch the speed is multiplied.
 // The gust holds until the player is back on the ground so a jump is never shortened mid-air.
 function stepWind(state) {
@@ -880,6 +1041,7 @@ export function timeToGround(y, vy, g = GRAVITY) {
  */
 export function step(state, input, dt) {
   state.events.length = 0;
+  state.bursts.length = 0;
   if (state.hitStop > 0) {
     state.hitStop = Math.max(0, state.hitStop - dt);
     return state;
@@ -895,7 +1057,11 @@ export function step(state, input, dt) {
     }
     state.speed = runSpeed(p.x) * state.wind.mult * (state.slide > 0 && !state.iceSlide ? PEEL_SLIDE_MULT : 1);
     state.dark = blackoutLevel(state);
+    state.popup = popupLevel(state);
     p.x += state.speed * dt;
+    const si = stretchIndex(p.x);
+    if (si !== state.stretch.i) state.stretch = { i: si, t: 0 };
+    else state.stretch.t += dt;
     state.distance = Math.max(state.distance, p.x / PX_PER_M);
     if (p.lag > 0) p.lag = Math.max(0, p.lag - dt);
     if (input.jumpPressed && p.jumpsLeft > 0 && state.slide <= 0 && p.lag <= 0) {

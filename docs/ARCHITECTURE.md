@@ -1,6 +1,6 @@
 # Almost There: Architecture
 
-Status: v6 (2026-10). Written from the code. Gameplay rules: [GAME-DESIGN.md](GAME-DESIGN.md).
+Status: v8 (2026-11). Written from the code. Gameplay rules: [GAME-DESIGN.md](GAME-DESIGN.md).
 
 ## 1. Overview
 
@@ -17,6 +17,9 @@ flowchart LR
     MAIN --> JOUR[journal.js<br/>persistence]
     MAIN --> REND[render.js<br/>Canvas 2D]
     MAIN --> AUD[audio.js / sfx.js<br/>Web Audio]
+    MAIN --> THEME[themes.js + levels/*.js<br/>ten levels as data]
+    REND --> THEME
+    REND --> SCEN[scenery.js<br/>backdrops, ambient]
     REND --> SPR[sprites.js<br/>sheet slicing]
     REND --> PIX[pixelart.js<br/>hand-pixeled sprites]
     JOUR --> LS[(localStorage)]
@@ -34,13 +37,15 @@ flowchart LR
 
 | Module | Responsibility | DOM / browser APIs |
 | --- | --- | --- |
-| `src/game.js` | Constants, `HAZARD_TYPES`, seeded RNG (`mulberry32`), `generateCourse`, `createState`, `startRun`, `step(state, input, dt)`, collisions, camera, effects. | None (pure, runs in Node) |
+| `src/game.js` | Constants, `HAZARD_TYPES`, seeded RNG (`mulberry32`), `generateCourse(rng, profile)`, `makeProfile`, `createState`, `startRun`, `step(state, input, dt)`, collisions, camera, effects, `state.bursts`. | None (pure, runs in Node) |
 | `src/autopilot.js` | `perfectInput` (flawless player) and `createHumanInput` (jittery player) used by tests and `?autopilot=1`. | None |
 | `src/endings.js` | `ENDINGS`, `pickEnding` (no repeats until all seen), `getEnding`. Only used with `?endings=1`. | None in logic; endings call `s.ui.*` hooks |
-| `src/themes.js` | Game modes as skins (D20): sprite slots, bubble words, hazard labels, death and DOM copy, journal key per mode. | None (pure) |
-| `src/journal.js` | Load/save the run log with validation; injectable storage and key (one journal per mode). | `localStorage` (optional) |
+| `src/themes.js` | The level registry (D20, D22): the two family bases (cake, office), `deriveLevel`, `LEVELS`, `getTheme`, text lookups. | None (pure) |
+| `src/levels/*.js` | One plain-data file per extra level: texts, sprite slots, scene, course profile, own sprites. No imports. Schema: [LEVELS.md](LEVELS.md). | None (pure) |
+| `src/scenery.js` | Draws a level's scene from data: sky, parallax silhouettes, indoor walls, ground, decor, ambient effects. Exports the vocabulary lists the tests validate against. | Canvas 2D (only when called) |
+| `src/journal.js` | Load/save the run log with validation; injectable storage and key (one journal per level). | `localStorage` (optional) |
 | `src/main.js` | Boot, URL params, input (keyboard, pointer), fixed-cap frame loop (`dt ≤ 50 ms`), DOM overlays, journal panel, debug hook. | DOM, `requestAnimationFrame`, `location.search` |
-| `src/render.js` | Draws world, hazards, hero, cake, table, HUD, overlays in a 960×540 logical space (600×540 in portrait, D21) at device-pixel resolution; `setTheme`, `setView`. | Canvas 2D |
+| `src/render.js` | Draws hazards, hero, carried item, goal, HUD, overlays, popup cover and stretch banner over the scenery in a 960×540 logical space (600×540 in portrait, D21) at device-pixel resolution; `setTheme`, `setView`. | Canvas 2D |
 | `src/sprites.js` / `src/pixelart.js` | Load Kenney sheets from `assets/sprites/`; hand-pixeled sprites from string grids. | `Image` |
 | `src/audio.js` / `src/sfx.js` | Fetch and decode `assets/audio/*.ogg`, music loop, mute toggle. | Web Audio, `fetch` (same origin), `localStorage` |
 
@@ -48,13 +53,14 @@ flowchart LR
 
 1. `boot()` loads sprite sheets and the font, builds the renderer, shows the title.
 2. Input sets `input.jumpPressed / jumpHeld`; each frame `tick(dt)` calls `step(state, input, dt)`.
-3. `step` advances the simulation and pushes events (`state.events`) that `main.js` turns into sound, overlays and
-   journal updates (`recordRun`, `markSeen`, then `saveJournal`).
+3. `step` advances the simulation and pushes events (`state.events`) and impact spots (`state.bursts`) that `main.js`
+   turns into sound, particles, overlays and journal updates (`recordRun`, `markSeen`, then `saveJournal`).
 4. `render.draw(state, hud)` paints the frame.
 
 `state.reducedMotion` is copied from `matchMedia('(prefers-reduced-motion: reduce)')` at the start of every tick.
 `blackoutLevel` (pure, tested in `tests/motion.test.js`) then returns a smooth ramp to `CALM_DIM` instead of a
-flicker to 1, and the renderer skips camera shake. Physics never read the flag.
+flicker to 1, and the renderer skips camera shake, the hit flash, the zoom punch, lightning and blinking, and halves
+ambient effects (D24). Physics never read the flag.
 
 Phases: `TITLE → RUNNING → DEAD | WIN`; with `?endings=1`, `RUNNING → ENDING → LOST`.
 
@@ -65,6 +71,8 @@ Only client-side `localStorage`; nothing is sent anywhere.
 | Key | Shape | Validation on load |
 | --- | --- | --- |
 | `almost-there:v2` | `{ seen: string[], attempts, best, wins, bestM: number, deaths: { [hazardType]: number } }` | Non-object → empty journal; arrays filtered to strings; numbers must be finite; `best ≤ 99.9`, `bestM ≤ 100`; parse errors → empty journal. |
+| `almost-there:office:v1`, `almost-there:<levelId>:v1` | Same shape, one run log per level (D22). | Same. |
+| `almost-there:mode` | Last picked level id (the key predates levels). | Unknown ids fall back to `cake`. |
 | `almost-there:mute` | `'1'` or `'0'` | Anything but `'1'` → unmuted. |
 
 Run-log cards are built with `textContent`, so stored strings are never parsed as HTML.
@@ -80,7 +88,7 @@ Run-log cards are built with `textContent`, so stored strings are never parsed a
 
 - Local: `npm run dev` (static server on port 5300, `serve.json` disables caching). `file://` does not work (ES modules).
 - Deploy: push to `main` → Vercel builds nothing and serves the folder. `vercel.json` sets security headers and caching
-  (`no-cache` for the page and `src/`, one day for `assets/`). `index.html` loads `src/main.js?v=6`; bump it when
+  (`no-cache` for the page and `src/`, one day for `assets/`). `index.html` loads `src/main.js?v=8`; bump it when
   module caching matters.
 - CI: `.github/workflows/ci.yml` runs `npm ci && npm test` on Node 22 with a read-only token.
 - Config: query parameters only (README "Dev query params"). No environment variables are read by the app.
@@ -88,7 +96,7 @@ Run-log cards are built with `textContent`, so stored strings are never parsed a
 ## 7. Security boundaries
 
 - Untrusted inputs: URL query parameters and `localStorage` contents (another script on the same origin, or a user
-  editing storage). Both are parsed defensively: `?course` drops unknown hazard types and non-finite positions,
+  editing storage). Both are parsed defensively: `?course` drops unknown hazard types and non-finite positions, `?level` and the stored level are checked against the registry with `Object.hasOwn`,
   `?advance` is finite-checked and capped at 600 s, `?ending` is looked up by id, `?seed` is coerced to uint32.
 - No `eval`, no inline scripts, no `innerHTML` with dynamic data except static ending titles/captions from source.
 - Headers (`vercel.json`): CSP (`script-src 'self'`, Google Fonts allowed, `frame-ancestors 'none'`), `X-Frame-Options:
@@ -98,7 +106,8 @@ Run-log cards are built with `textContent`, so stored strings are never parsed a
 
 ## 8. Known tech debt
 
-- `main.js` (~500 lines) and `game.js` (~1 100 lines) mix several concerns; fine for the size, but `stepHazards` is long.
-- Rendering and DOM wiring have no automated tests; they rely on headless screenshots done by hand.
+- `main.js` (~650 lines) and `game.js` (~1 250 lines) mix several concerns; fine for the size, but `stepHazards` is long.
+- Rendering and DOM wiring have no automated tests; they rely on screenshots done by hand. Level data is validated (names, sizes, colours), but whether a sprite reads well is judged by eye.
+- Level art lives in ten places (`pixelart.js` plus one file per level); there is no shared sprite viewer.
 - The copy embedded in the landing page repo is maintained by hand and drifts.
 - Legacy endings mode (`?endings=1`) is kept alive but unused by default.

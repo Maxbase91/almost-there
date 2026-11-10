@@ -8,7 +8,7 @@ import { createRenderer } from './render.js';
 import { loadImages } from './sprites.js';
 import { buildPixelSprites } from './pixelart.js';
 import { createAudio } from './audio.js';
-import { MODES, DEFAULT_MODE, isMode, getTheme, deathText, journalLabel } from './themes.js';
+import { MODES, DEFAULT_LEVEL, LEVEL_SPRITES, isLevel, levelsOf, getTheme, deathText, journalLabel } from './themes.js';
 
 const $ = (sel) => document.querySelector(sel);
 const canvas = $('#game');
@@ -34,21 +34,22 @@ const forcedCourseSpec = params.has('course')
       .filter(({ type, x }) => Object.hasOwn(HAZARD_TYPES, type) && Number.isFinite(x))
   : null;
 
-// Game mode (D20): ?mode=office, else the last mode picked on the title screen. ?endings=1 is cake-only.
-const MODE_KEY = 'almost-there:mode';
-function storedMode() {
+// Level (D20, D22): ?level=quarter (or the older ?mode=office), else the last level picked on the title screen.
+// The storage key predates levels; its old values 'cake' and 'office' are still level ids. ?endings=1 is cake-only.
+const LEVEL_KEY = 'almost-there:mode';
+function storedLevel() {
   try {
-    return localStorage.getItem(MODE_KEY);
+    return localStorage.getItem(LEVEL_KEY);
   } catch {
     return null;
   }
 }
-let mode = endingsMode ? DEFAULT_MODE : [params.get('mode'), storedMode()].find(isMode) ?? DEFAULT_MODE;
-let theme = getTheme(mode);
+let level = endingsMode ? DEFAULT_LEVEL : [params.get('level'), params.get('mode'), storedLevel()].find(isLevel) ?? DEFAULT_LEVEL;
+let theme = getTheme(level);
 
 const audio = createAudio();
 let journal = loadJournal(undefined, theme.journalKey);
-let state = createState({ rng: Math.random, attempts: journal.attempts });
+let state = createState({ rng: Math.random, attempts: journal.attempts, profile: theme.profile });
 let hud = { attempts: journal.attempts, best: journal.best, prevBest: journal.best, muted: audio.muted, wins: journal.wins, bestM: endingsMode ? null : journal.bestM };
 const input = { jumpPressed: false, jumpHeld: false };
 let lastPhase = state.phase;
@@ -250,7 +251,7 @@ function restart() {
   win.hidden = true;
   title.hidden = true;
   // A fresh course every attempt (D3). ?seed / ?course pin it for debugging.
-  state = startRun({ ...state, attempts: hud.attempts }, { seed: forcedSeed, course: forcedCourseSpec ? courseFromSpec(forcedCourseSpec) : null });
+  state = startRun({ ...state, attempts: hud.attempts }, { seed: forcedSeed, course: forcedCourseSpec ? courseFromSpec(forcedCourseSpec) : null, profile: theme.profile });
   state.ui = ui;
   state.endingsMode = endingsMode;
   hud.attempts = state.attempts;
@@ -264,13 +265,46 @@ for (const id of ['#retry', '#dead-retry', '#win-again']) {
     restart();
   });
 }
-for (const [id, m] of [['#start', 'cake'], ['#start-office', 'office']]) {
-  $(id).addEventListener('click', () => {
-    audio.unlock();
-    audio.play('click');
-    setMode(m);
-    restart();
-  });
+// Level select: one button per level, grouped by family. Built with textContent only.
+const levelButtons = new Map();
+function buildLevelButtons() {
+  for (const family of MODES) {
+    const col = $(`#levels-${family}`);
+    for (const lv of levelsOf(family)) {
+      if (endingsMode && lv.id !== DEFAULT_LEVEL) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn';
+      const name = document.createElement('span');
+      name.textContent = lv.name;
+      const best = document.createElement('span');
+      best.className = 'lvl-best';
+      btn.append(name, best);
+      const preview = () => {
+        $('#pitch').textContent = lv.dom.pitch;
+      };
+      btn.addEventListener('pointerenter', preview);
+      btn.addEventListener('focus', preview);
+      btn.addEventListener('click', () => {
+        audio.unlock();
+        audio.play('click');
+        setLevel(lv.id);
+        restart();
+      });
+      col.appendChild(btn);
+      levelButtons.set(lv.id, { btn, best, journalKey: lv.journalKey });
+    }
+    col.hidden = !col.querySelector('button');
+  }
+}
+// Best distance (or wins) per level, shown on its button.
+function refreshLevelButtons() {
+  for (const [id, { btn, best, journalKey }] of levelButtons) {
+    const j = id === level ? journal : loadJournal(undefined, journalKey);
+    best.textContent = j.wins > 0 ? `WON ×${j.wins}` : j.bestM > 0 ? `${j.bestM.toFixed(1)} m` : '';
+    btn.classList.toggle('ghost', id !== level);
+  }
+  $('#pitch').textContent = theme.dom.pitch;
 }
 for (const id of ['#dead-menu', '#win-menu']) {
   $(id).addEventListener('click', () => {
@@ -279,19 +313,19 @@ for (const id of ['#dead-menu', '#win-menu']) {
   });
 }
 
-// Switches skin, journal and DOM copy. Never builds HTML: every string goes through textContent.
-function setMode(m) {
-  if (!isMode(m) || (endingsMode && m !== DEFAULT_MODE)) return;
-  mode = m;
-  theme = getTheme(m);
+// Switches skin, course profile, journal and DOM copy. Never builds HTML: every string goes through textContent.
+function setLevel(id) {
+  if (!isLevel(id) || (endingsMode && id !== DEFAULT_LEVEL)) return;
+  level = id;
+  theme = getTheme(id);
   try {
-    localStorage.setItem(MODE_KEY, m);
+    localStorage.setItem(LEVEL_KEY, id);
   } catch {
     /* private mode: the choice just isn't remembered */
   }
   journal = loadJournal(undefined, theme.journalKey);
   hud = { ...hud, attempts: journal.attempts, best: journal.best, prevBest: journal.best, wins: journal.wins, bestM: endingsMode ? null : journal.bestM };
-  if (renderer) renderer.setTheme(m);
+  if (renderer) renderer.setTheme(id);
   applyDomText();
 }
 
@@ -301,14 +335,14 @@ function applyDomText() {
   $('#win-title').textContent = d.winTitle;
   $('#close-journal').textContent = d.closeJournal;
   $('#rotate-hint').textContent = d.rotate;
-  for (const m of MODES) $(m === 'cake' ? '#start' : '#start-office').classList.toggle('ghost', m !== mode);
-  $('#start-office').hidden = endingsMode;
+  refreshLevelButtons();
 }
 
 function showTitle() {
   ui.hideDialog();
   for (const el of [lost, dead, win, journalPanel]) el.hidden = true;
-  state = createState({ rng: Math.random, attempts: hud.attempts });
+  state = createState({ rng: Math.random, attempts: hud.attempts, profile: theme.profile });
+  refreshLevelButtons();
   state.ui = ui;
   lastPhase = state.phase;
   title.hidden = false;
@@ -469,8 +503,45 @@ function handleEvents() {
       case 'splat':
         audio.play('splat', { volume: 0.5, rate: 1.3 });
         break;
+      case 'whoosh':
+        audio.play('flap', { volume: 0.6, rate: 1.6 });
+        break;
       default:
         break;
+    }
+  }
+  // Impact spots reported by the simulation become particles here, so the simulation itself stays rng-free.
+  const office = theme.family === 'office';
+  for (const b of state.bursts) {
+    const debris = office ? ['#8a8fa3', '#c9cdd9', '#45485c'] : ['#8d5a2b', '#c98a4b', '#5a3a1e'];
+    if (b.kind === 'crate') spawnFx(state, 14, { x: b.x, y: b.y - 6, spread: 50, color: debris, size: 4, speed: 260, life: 0.7 });
+    else if (b.kind === 'crack') spawnFx(state, 12, { x: b.x, y: b.y, spread: 90, color: debris, size: 4, speed: 200, life: 0.7 });
+    else if (b.kind === 'mole') spawnFx(state, 8, { x: b.x, y: b.y, spread: 30, color: debris, size: 3, speed: 180, life: 0.6 });
+    else if (b.kind === 'grow') spawnFx(state, 12, { x: b.x, y: b.y, spread: 40, color: theme.growerColors ?? debris, size: 4, speed: 220, life: 0.7 });
+  }
+}
+
+// Cosmetic extras driven by the loop: dust under running feet, fireworks after a win.
+const FIREWORKS = { cake: ['#ff5c8a', '#ffd166', '#06d6a0', '#118ab2', '#fff'], office: ['#2684ff', '#ffd166', '#5fbf5a', '#bfe4ff', '#fff'] };
+let dustT = 0;
+let fireworkT = 0;
+function juice(dt) {
+  const p = state.player;
+  if (state.phase === PHASE.RUNNING && p.onGround && !state.reducedMotion) {
+    dustT += dt;
+    if (dustT > 0.11) {
+      dustT = 0;
+      spawnFx(state, 1, { x: p.x - 14, y: GROUND_Y - 3, spread: 6, color: theme.family === 'office' ? ['#c9cdd9', '#8a8fa3'] : ['#e8d5b5', '#c98a4b'], size: 3, speed: 70, life: 0.35, gravity: 120 });
+    }
+  }
+  if (state.phase === PHASE.WIN && state.winT < 3.4) {
+    fireworkT -= dt;
+    if (fireworkT <= 0) {
+      fireworkT = state.reducedMotion ? 1.1 : 0.42;
+      const colors = FIREWORKS[theme.family] ?? FIREWORKS.cake;
+      const one = colors[Math.floor(Math.random() * colors.length)];
+      spawnFx(state, state.reducedMotion ? 12 : 28, { x: state.camera.x + 160 + Math.random() * 640, y: 90 + Math.random() * 150, spread: 6, color: [one, '#fff'], size: 5, speed: 420, vy: 210, gravity: 240, life: 1.1 });
+      if (!audio.muted) audio.play('click', { volume: 0.25, rate: 0.5 });
     }
   }
 }
@@ -490,6 +561,7 @@ function tick(dt) {
   step(state, input, dt);
   input.jumpPressed = false;
   handleEvents();
+  juice(dt);
 
   if (state.phase === PHASE.ENDING && lastPhase !== PHASE.ENDING) onEnterEnding();
   if (state.phase === PHASE.LOST && lastPhase !== PHASE.LOST) onLost();
@@ -538,6 +610,7 @@ window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', fit);
 window.visualViewport?.addEventListener('resize', fit);
 document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
+buildLevelButtons();
 applyDomText();
 fit();
 
@@ -545,8 +618,8 @@ fit();
 async function boot() {
   try {
     const [images] = await Promise.all([loadImages(), document.fonts ? document.fonts.load('12px "Press Start 2P"').catch(() => null) : null]);
-    renderer = createRenderer(canvas, images, buildPixelSprites());
-    renderer.setTheme(mode);
+    renderer = createRenderer(canvas, images, buildPixelSprites(LEVEL_SPRITES));
+    renderer.setTheme(level);
     fit();
   } catch (err) {
     $('#loading-text').textContent = 'Could not load the art. Reload?';

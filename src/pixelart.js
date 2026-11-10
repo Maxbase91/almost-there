@@ -1,7 +1,7 @@
 // Hand-pixeled sprites for things no CC0 pack has (pig, dog, cat, cake, table, banana, clock, ...).
 // Each sprite is a string grid; one character = one pixel. Built into offscreen canvases at load.
 
-const PALETTE = {
+export const PALETTE = {
   '.': null,
   K: '#2b2b3a', // outline
   W: '#ffffff',
@@ -29,6 +29,23 @@ const PALETTE = {
   V: '#6c5ce7', // purple
   J: '#2684ff', // office blue
   N: '#2a52be', // blue screen
+  // v8: colours for the level art (src/levels/)
+  C: '#1f9e9e', // teal
+  c: '#7fe0d8', // light teal
+  U: '#3b2a5c', // dark purple
+  u: '#9b7bd8', // light purple
+  o: '#c96a1b', // dark orange
+  F: '#ff4fa3', // neon pink
+  f: '#ffb3d9', // light neon pink
+  A: '#1b2a4a', // navy
+  a: '#4a6fa5', // steel blue
+  H: '#e8d5a3', // sand
+  h: '#f7ecd0', // cream
+  I: '#9fe8ff', // ice
+  X: '#8b1e2d', // dark red
+  Z: '#3a2412', // very dark brown
+  e: '#3c3c4e', // charcoal
+  k: '#d4af37', // gold
 };
 
 const ART = {
@@ -971,12 +988,62 @@ const ART = {
     'KDDDDDDDDDDK',
     'KKKKKKKKKKKK',
   ],
+  // ---------- v8 hazards (D23) ----------
+  // 15x8 boomerang
+  boomerang: [
+    '..KKKK.........',
+    '.KbbbbKK.......',
+    '.KbBBbbbKK.....',
+    '..KKKbBbbbKK...',
+    '.....KKbBbbbK..',
+    '.......KKbBbK..',
+    '.........KKbK..',
+    '...........KK..',
+  ],
+  // 14x8 delegated task card (office boomerang)
+  taskCard: [
+    'KKKKKKKKKKKKKK',
+    'KYYYYYYYYYYYYK',
+    'KYKKKYYKKKKYYK',
+    'KYYYYYYYYYYYYK',
+    'KYKKKKKYYKKYYK',
+    'KYYYYYYYYYYYYK',
+    'KYYYYYYYYRRYYK',
+    'KKKKKKKKKKKKKK',
+  ],
+  // 6x22 goalpost at each edge of the moving hole (office creep)
+  goalpost: [
+    'KKKKKK',
+    'KWWWWK',
+    'KWWWWK',
+    '.KWWK.',
+    '.KWWK.',
+    '.KRRK.',
+    '.KRRK.',
+    '.KWWK.',
+    '.KWWK.',
+    '.KRRK.',
+    '.KRRK.',
+    '.KWWK.',
+    '.KWWK.',
+    '.KRRK.',
+    '.KRRK.',
+    '.KWWK.',
+    '.KWWK.',
+    '.KRRK.',
+    '.KRRK.',
+    '.KWWK.',
+    '.KWWK.',
+    'KKKKKK',
+  ],
 };
 
-export function buildPixelSprites() {
+// extra: sprites owned by level files (LEVEL_SPRITES in src/themes.js), same string-grid format.
+export function buildPixelSprites(extra = {}) {
   const out = {};
   const hasDoc = typeof document !== 'undefined';
-  for (const [name, rows] of Object.entries(ART)) {
+  for (const name of Object.keys(extra)) if (Object.hasOwn(ART, name)) throw new Error(`pixelart ${name}: a level sprite shadows a base sprite`);
+  for (const [name, rows] of Object.entries({ ...ART, ...extra })) {
     const h = rows.length;
     const w = rows[0].length;
     for (const r of rows) if (r.length !== w) throw new Error(`pixelart ${name}: ragged row`);

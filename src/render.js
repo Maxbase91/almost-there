@@ -1,14 +1,15 @@
 // Canvas renderer, pixel-art edition. World drawing uses Kenney CC0 sprites and hand-pixeled art
 // (src/sprites.js, src/pixelart.js) at PIXEL_SCALE. No emoji anywhere.
 
-import { W, H, GROUND_Y, TABLE_X, PX_PER_M, COURSE_M, PHASE, BASE_SPEED, BLACKOUT, CALM_DIM, progress, isPit, biomeAt, pendulumBall } from './game.js';
+import { W, H, GROUND_Y, PX_PER_M, COURSE_M, PHASE, BASE_SPEED, BLACKOUT, CALM_DIM, CANOPY_CLEARANCE, progress, biomeAt, pendulumBall } from './game.js';
 import { createSpriteDrawer, PIXEL_SCALE, SHEETS, SPRITES } from './sprites.js';
 import { getTheme } from './themes.js';
+import { createScenery } from './scenery.js';
 
 export const FONT = '"Press Start 2P", "Courier New", monospace';
 const INK = '#2b2b3a';
 const TILE = 18 * PIXEL_SCALE; // 54
-const BG_TILE = 24 * PIXEL_SCALE; // 72
+const snap = (v) => Math.round(v / 3) * 3;
 
 export function createRenderer(canvas, images, pixelSprites) {
   const ctx = canvas.getContext('2d');
@@ -21,6 +22,8 @@ export function createRenderer(canvas, images, pixelSprites) {
   // The world stays centred on the same point, so only the edges of the view are cropped.
   let VW = W;
   let pxScale = 1;
+  // Backdrops, ground and ambient effects come from the level's scene data (src/scenery.js).
+  const scenery = createScenery(ctx, sp, () => VW);
 
   // ---------- helpers exposed to endings ----------
   const g = {
@@ -131,17 +134,19 @@ export function createRenderer(canvas, images, pixelSprites) {
   // ---------- main draw ----------
   function draw(state, hud) {
     const cam = state.camera;
+    const scene = theme.scene;
+    const calm = state.reducedMotion;
     ctx.setTransform(pxScale, 0, 0, pxScale, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, VW, H);
-    const office = theme.scene === 'office';
-    if (office) drawOfficeSky(state);
-    else drawSky(state);
+    scenery.sky(state, scene);
 
-    const z = cam.zoom || 1;
+    // A hit lands with a short zoom punch (not with reduced motion).
+    const punch = state.phase === PHASE.DEAD && !calm ? 0.05 * Math.max(0, 1 - state.deadT / 0.35) : 0;
+    const z = (cam.zoom || 1) * (1 + punch);
     const fx = cam.x + W / 2;
     const fy = cam.focusY ?? H / 2;
-    const shake = state.reducedMotion ? 0 : cam.shake;
+    const shake = calm ? 0 : cam.shake;
     const sx = shake ? Math.round((state.rng() - 0.5) * shake * 14 / 3) * 3 : 0;
     const sy = shake ? Math.round((state.rng() - 0.5) * shake * 10 / 3) * 3 : 0;
 
@@ -150,22 +155,10 @@ export function createRenderer(canvas, images, pixelSprites) {
     ctx.scale(z, z);
     ctx.translate(-Math.round(fx), -Math.round(fy));
 
-    if (office) {
-      drawOfficeWall(state);
-      drawOfficeFloor(state);
-    } else {
-      const biome = biomeAt(state.player.x);
-      ctx.globalAlpha = biome === 'night' ? 0.35 : 0.75;
-      drawParallax(state, 0.15, 'bgFar', 'bgFarB', 'bgFarFill', GROUND_Y - BG_TILE * 2 - 30);
-      ctx.globalAlpha = biome === 'night' ? 0.5 : 1;
-      if (biome === 'desert') drawParallax(state, 0.4, 'bgDesert', 'bgDesertB', 'bgDesertFill', GROUND_Y - BG_TILE - 20);
-      else if (biome === 'snow') drawParallax(state, 0.4, 'bgFar', 'bgFarB', 'bgFarFill', GROUND_Y - BG_TILE - 20);
-      else drawParallax(state, 0.4, 'bgHills', 'bgHillsB', 'bgFill', GROUND_Y - BG_TILE - 20);
-      ctx.globalAlpha = 1;
-      drawClouds(state);
-      drawGround(state);
-    }
-    drawDecor(state);
+    scenery.layers(state, scene);
+    scenery.walls(state, scene);
+    scenery.ground(state, scene);
+    scenery.decor(state, scene);
     for (const h of state.hazards) drawHazard(h, state);
     drawTable(state);
     drawKid(state);
@@ -175,232 +168,24 @@ export function createRenderer(canvas, images, pixelSprites) {
     if (state.ending && state.ending.def.drawWorld) state.ending.def.drawWorld(g, state);
     ctx.restore();
 
+    scenery.ambient(state, scene);
     if (state.dark > 0) drawBlackout(state);
     if (state.phase === PHASE.RUNNING) {
-      drawOffscreenPig(state);
+      if (state.popup) drawPopup(state);
+      drawOffscreenChaser(state);
       drawSpeedLines(state);
       drawWind(state);
+      drawStretchBanner(state);
+    }
+    // One soft flash while the hit-stop holds the frame (never with reduced motion).
+    if (state.phase === PHASE.DEAD && !calm && state.hitStop > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${(0.35 * state.hitStop) / 0.12})`;
+      ctx.fillRect(0, 0, VW, H);
     }
     if (state.phase === PHASE.WIN) drawWin(state);
     drawOverlay(state);
     if (state.ending && state.ending.def.drawScreen) state.ending.def.drawScreen(g, state);
     drawHud(state, hud);
-  }
-
-  const SKIES = {
-    meadow: ['#5fb3ff', '#6fbcff', '#82c6ff', '#9ad3ff', '#b6e1ff', '#d2eeff'],
-    desert: ['#ffb26b', '#ffbe7d', '#ffc98f', '#ffd6a4', '#ffe2ba', '#ffecd0'],
-    snow: ['#9fc4e8', '#aecef0', '#bdd8f4', '#cde2f8', '#dcebfb', '#eaf3fd'],
-    night: ['#0b1030', '#101640', '#171d4f', '#1e255d', '#262d6b', '#303878'],
-  };
-  function drawSky(state) {
-    const bands = SKIES[biomeAt(state.player.x)] ?? SKIES.meadow;
-    const bh = Math.ceil(H / bands.length / 3) * 3;
-    bands.forEach((c, i) => {
-      ctx.fillStyle = c;
-      ctx.fillRect(0, i * bh, VW, bh + 3);
-    });
-    const biome = biomeAt(state.player.x);
-    if (biome === 'night') {
-      ctx.fillStyle = '#fff';
-      for (let i = 0; i < 40; i++) ctx.fillRect(((i * 193) % VW), ((i * 89) % 260) + 10, 3, 3);
-      ctx.fillStyle = '#fff1b5';
-      ctx.fillRect(VW - 150, 54, 42, 42);
-      ctx.fillStyle = SKIES.night[0];
-      ctx.fillRect(VW - 138, 48, 36, 36);
-      return;
-    }
-    // sun
-    ctx.fillStyle = '#fff1b5';
-    ctx.fillRect(VW - 150, 54, biome === 'desert' ? 72 : 54, biome === 'desert' ? 72 : 54);
-    ctx.fillStyle = '#ffd166';
-    ctx.fillRect(VW - 144, 60, biome === 'desert' ? 60 : 42, biome === 'desert' ? 60 : 42);
-  }
-
-  function drawParallax(state, factor, a, b, fill, topY) {
-    const cam = state.camera;
-    const offset = cam.x * (1 - factor);
-    const startX = Math.floor((cam.x - offset - BG_TILE) / BG_TILE) * BG_TILE + offset;
-    for (let x = startX; x < cam.x + W + BG_TILE * 2; x += BG_TILE) {
-      const i = Math.round((x - offset) / BG_TILE);
-      sp.draw(i % 2 ? a : b, x, topY, { anchor: 'tl' });
-      for (let y = topY + BG_TILE; y < GROUND_Y + 10; y += BG_TILE) sp.draw(fill, x, y, { anchor: 'tl' });
-    }
-  }
-
-  function drawClouds(state) {
-    const cam = state.camera;
-    const factor = 0.3;
-    for (let i = 0; i < 12; i++) {
-      const wx = i * 520 + (i % 3) * 90 - cam.x * (1 - factor);
-      const wy = 70 + (i % 4) * 34;
-      if (wx + 60 < cam.x - 100 || wx > cam.x + W + 100) continue;
-      sp.draw('cloudWhite', wx, wy, { anchor: 'tl', scale: i % 2 ? 1 : 1.5 });
-    }
-  }
-
-  function drawGround(state) {
-    const cam = state.camera;
-    const start = Math.floor((cam.x - TILE) / TILE) * TILE;
-    const end = cam.x + W + TILE;
-    const pits = state.hazards.filter(isPit);
-    for (let x = start; x < end; x += TILE) {
-      const pit = pits.find((p) => x >= p.x - 6 && x + TILE <= p.x + p.w + 6);
-      if (pit) continue;
-      const i = Math.round(x / TILE);
-      const b = biomeAt(x);
-      const top = b === 'desert' ? (i % 5 === 2 ? 'groundTopSandAlt' : 'groundTopSand') : b === 'snow' ? (i % 5 === 2 ? 'groundTopSnowAlt' : 'groundTopSnow') : i % 5 === 2 ? 'groundTopAlt' : 'groundTop';
-      const ice = state.hazards.find((h) => h.type === 'ice' && x >= h.anchorX - 10 && x + TILE <= h.anchorX + h.w + 10);
-      sp.draw(top, x, GROUND_Y, { anchor: 'tl' });
-      if (ice) {
-        ctx.fillStyle = 'rgba(190,230,255,0.75)';
-        ctx.fillRect(x, GROUND_Y, TILE, 15);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(x + 6, GROUND_Y + 3, 18, 3);
-      }
-      sp.draw(i % 7 === 3 ? 'groundFillAlt' : 'groundFill', x, GROUND_Y + TILE, { anchor: 'tl' });
-    }
-    for (const p of pits) {
-      if (p.x + p.w < cam.x - 50 || p.x > cam.x + W + 50) continue;
-      ctx.fillStyle = '#3a2412';
-      ctx.fillRect(Math.round(p.x), GROUND_Y, Math.round(p.w), H);
-      ctx.fillStyle = '#5a3a1e';
-      ctx.fillRect(Math.round(p.x), GROUND_Y, 6, H);
-      ctx.fillRect(Math.round(p.x + p.w) - 6, GROUND_Y, 6, H);
-      ctx.fillStyle = '#1d1208';
-      ctx.fillRect(Math.round(p.x) + 6, GROUND_Y + 60, Math.round(p.w) - 12, H);
-    }
-  }
-
-  const DECOR = {
-    meadow: ['sprout', 'bush', 'mushroom', 'sunflower', 'treeRound', 'hay', 'pine'],
-    desert: ['cactus', 'cactusTall', 'cactus', 'tumbleweed', 'barrel'],
-    snow: ['pine', 'snowman', 'pine', 'sprout'],
-    night: ['lantern', 'bush', 'lantern', 'pine'],
-  };
-  function drawDecor(state) {
-    const cam = state.camera;
-    const office = theme.scene === 'office';
-    for (let x = 300; x < TABLE_X - 200; x += 260) {
-      if (x < cam.x - 80 || x > cam.x + W + 80) continue;
-      const h = (x * 2654435761) >>> 0;
-      const decor = office ? OFFICE_DECOR : DECOR;
-      const list = decor[biomeAt(x)] ?? decor.meadow;
-      const name = list[h % list.length];
-      const near = state.hazards.some((hz) => x > hz.anchorX - 90 && x < hz.anchorX + hz.w + 90);
-      if (near) continue;
-      sp.draw(name, x + (h % 40), GROUND_Y + 2);
-    }
-  }
-
-  // ---------- office scene (project-delivery mode) ----------
-  // Same four stretches as the cake biomes: open-plan, server room, cold meeting room, after hours.
-  const OFFICE = {
-    meadow: { wall: '#e9dcc3', trim: '#c9b48f', floor: '#7a8aa8', floorMark: '#8d9cb8', fill: '#3b4258', win: '#9ad3ff', city: '#6fa9d6' },
-    desert: { wall: '#5a6b88', trim: '#3d4a61', floor: '#b4bccb', floorMark: '#c9cdd9', fill: '#3b4258', racks: true },
-    snow: { wall: '#dfe9f2', trim: '#a9bccd', floor: '#c9cdd9', floorMark: '#dde1ea', fill: '#4b5468', win: '#eaf3fd', city: '#bdd8f4' },
-    night: { wall: '#2a2440', trim: '#1b1730', floor: '#3d3a5c', floorMark: '#4a4770', fill: '#15131f', win: '#101640', city: '#262d6b', lit: true },
-  };
-  // Only soft, round-ish props: boxy decor (cabinets, racks) reads like an obstacle at speed.
-  const OFFICE_DECOR = {
-    meadow: ['plant', 'cooler', 'plant', 'coffeeMachine'],
-    desert: ['plant'],
-    snow: ['plant', 'cooler'],
-    night: ['plant', 'coffeeMachine'],
-  };
-  const WALL_SEG = 260;
-
-  function drawOfficeSky(state) {
-    ctx.fillStyle = OFFICE[biomeAt(state.player.x)].trim;
-    ctx.fillRect(0, 0, VW, H);
-  }
-
-  function drawOfficeWall(state) {
-    const cam = state.camera;
-    const start = Math.floor(cam.x / WALL_SEG) * WALL_SEG - WALL_SEG;
-    for (let x = start; x < cam.x + W + WALL_SEG; x += WALL_SEG) {
-      const o = OFFICE[biomeAt(x)];
-      ctx.fillStyle = o.wall;
-      ctx.fillRect(x, 0, WALL_SEG, GROUND_Y);
-      // ceiling strip with a light panel
-      ctx.fillStyle = o.trim;
-      ctx.fillRect(x, 0, WALL_SEG, 33);
-      ctx.fillStyle = o.lit || o.racks ? '#6b6f80' : '#fff8e0';
-      ctx.fillRect(x + 90, 33, 84, 6);
-      if (o.racks) {
-        // server racks with blinking LEDs instead of windows
-        for (let r = 0; r < 2; r++) {
-          const rx = x + 36 + r * 108;
-          ctx.fillStyle = '#111118';
-          ctx.fillRect(rx, 96, 84, 246);
-          ctx.fillStyle = '#45485c';
-          for (let u = 0; u < 9; u++) ctx.fillRect(rx + 6, 102 + u * 27, 72, 21);
-          for (let u = 0; u < 9; u++) {
-            const on = ((Math.floor(state.t * 4) + u * 7 + r * 3 + x) >>> 0) % 5 < 3;
-            ctx.fillStyle = on ? (u % 3 ? '#5fbf5a' : '#ffd166') : '#2b2b3a';
-            ctx.fillRect(rx + 66, 111 + u * 27, 6, 3);
-          }
-        }
-      } else {
-        // window with a skyline
-        ctx.fillStyle = o.trim;
-        ctx.fillRect(x + 48, 87, 168, 192);
-        ctx.fillStyle = o.win;
-        ctx.fillRect(x + 57, 96, 150, 174);
-        ctx.fillStyle = o.city;
-        const hgt = [72, 117, 54, 96, 132, 78];
-        hgt.forEach((bh, i) => ctx.fillRect(x + 57 + i * 25, 270 - bh, 22, bh));
-        if (o.lit) {
-          ctx.fillStyle = '#ffd166';
-          hgt.forEach((bh, i) => {
-            for (let k = 0; k < bh - 12; k += 18) if ((i * 5 + k) % 4 !== 1) ctx.fillRect(x + 63 + i * 25, 270 - bh + 9 + k, 3, 6);
-          });
-        }
-        ctx.fillStyle = o.trim;
-        ctx.fillRect(x + 129, 96, 6, 174);
-      }
-      // skirting board
-      ctx.fillStyle = o.trim;
-      ctx.fillRect(x, GROUND_Y - 15, WALL_SEG, 15);
-    }
-  }
-
-  function drawOfficeFloor(state) {
-    const cam = state.camera;
-    const start = Math.floor((cam.x - TILE) / TILE) * TILE;
-    const end = cam.x + W + TILE;
-    const pits = state.hazards.filter(isPit);
-    for (let x = start; x < end; x += TILE) {
-      if (pits.some((p) => x >= p.x - 6 && x + TILE <= p.x + p.w + 6)) continue;
-      const o = OFFICE[biomeAt(x)];
-      ctx.fillStyle = o.floor;
-      ctx.fillRect(x, GROUND_Y, TILE, 18);
-      ctx.fillStyle = o.floorMark;
-      ctx.fillRect(x + 6, GROUND_Y + 6, 18, 3);
-      ctx.fillStyle = INK;
-      ctx.fillRect(x, GROUND_Y + 18, TILE, 3);
-      ctx.fillStyle = o.fill;
-      ctx.fillRect(x, GROUND_Y + 21, TILE, H - GROUND_Y);
-      if (state.hazards.some((h) => h.type === 'ice' && x >= h.anchorX - 10 && x + TILE <= h.anchorX + h.w + 10)) {
-        ctx.fillStyle = 'rgba(190,230,255,0.75)';
-        ctx.fillRect(x, GROUND_Y, TILE, 15);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(x + 6, GROUND_Y + 3, 18, 3);
-      }
-    }
-    for (const p of pits) {
-      if (p.x + p.w < cam.x - 50 || p.x > cam.x + W + 50) continue;
-      ctx.fillStyle = '#1d1f2b';
-      ctx.fillRect(Math.round(p.x), GROUND_Y, Math.round(p.w), H);
-      ctx.fillStyle = '#45485c';
-      ctx.fillRect(Math.round(p.x), GROUND_Y, 6, H);
-      ctx.fillRect(Math.round(p.x + p.w) - 6, GROUND_Y, 6, H);
-      // cables dangling into the void
-      ctx.fillStyle = '#ffd166';
-      ctx.fillRect(Math.round(p.x) + 12, GROUND_Y, 3, 36);
-      ctx.fillStyle = '#5fb3ff';
-      ctx.fillRect(Math.round(p.x + p.w) - 18, GROUND_Y, 3, 24);
-    }
   }
 
   function drawHazard(h, state) {
@@ -414,8 +199,8 @@ export function createRenderer(canvas, images, pixelSprites) {
       case 'wall':
         if (theme.art.wall) {
           for (let i = 0; i < 3; i++) sp.draw(A('wall'), cx, y + 2 - TILE * i);
-          sp.draw(A('wallTop'), cx, y + 2 - TILE * 3);
-        } else if (biomeAt(h.anchorX) === 'desert') {
+          if (theme.art.wallTop) sp.draw(A('wallTop'), cx, y + 2 - TILE * 3);
+        } else if (theme.id === 'cake' && biomeAt(h.anchorX) === 'desert') {
           // a giant cactus in the desert
           sp.draw('cactusTall', cx, y + 2);
           sp.draw('cactusTall', cx, y + 2 - TILE);
@@ -454,7 +239,7 @@ export function createRenderer(canvas, images, pixelSprites) {
         if (h.warn) g.bubble(h.warn, cx, y - 52);
         break;
       case 'skate':
-        if (biomeAt(h.anchorX) === 'desert' && !theme.art.skate) sp.draw('tumbleweed', cx, y + 2 - Math.abs(Math.sin(state.t * 9)) * 10, { rot: -state.t * 6, anchor: 'c' });
+        if (theme.id === 'cake' && biomeAt(h.anchorX) === 'desert') sp.draw('tumbleweed', cx, y + 2 - Math.abs(Math.sin(state.t * 9)) * 10, { rot: -state.t * 6, anchor: 'c' });
         else sp.draw(A('skate'), cx, y + 2);
         break;
       case 'pigeon': {
@@ -610,6 +395,112 @@ export function createRenderer(canvas, images, pixelSprites) {
         for (let i = 0; i < 6; i++) ctx.fillRect(Math.round((h.anchorX + 40 + i * (h.w / 6)) / 3) * 3, y - 6 - (i % 2) * 3, 9, 3);
         break;
       }
+      case 'creep': {
+        // The hole itself is drawn with the ground; this is what tells you it moves.
+        const post = theme.art.creepPost;
+        if (post) {
+          sp.draw(post, h.x - 3, y + 2);
+          sp.draw(post, h.x + h.w + 3, y + 2);
+        }
+        if (h.state === 'active') {
+          ctx.fillStyle = post ? '#8a8fa3' : '#8d5a2b';
+          for (let i = 0; i < 4; i++) ctx.fillRect(snap(h.x - 9 - i * 9), y - 3 - snap((state.t * 60 + i * 11) % 15), 6, 3);
+          g.text('<<', cx, y + 33, { size: 10, color: '#fff' });
+        }
+        if (h.warn) g.bubble(h.warn, cx, y - 24);
+        break;
+      }
+      case 'grower': {
+        const [fill, shade, accent] = theme.growerColors ?? ['#5fbf5a', '#2f8f4e', '#bfe8a0'];
+        const hh = snap(h.h);
+        const x0 = Math.round(h.x);
+        const top = y - hh;
+        if (theme.growerStyle === 'stack') {
+          // a pile of paper that keeps growing
+          ctx.fillStyle = INK;
+          ctx.fillRect(x0, top - 3, h.w, hh + 3);
+          for (let sy = y - 9, n = 0; sy >= top; sy -= 9, n++) {
+            ctx.fillStyle = fill;
+            ctx.fillRect(x0 + 3, sy, h.w - 6, 6);
+            ctx.fillStyle = shade;
+            ctx.fillRect(x0 + 3, sy + 6, h.w - 6, 3);
+            ctx.fillStyle = accent;
+            ctx.fillRect(x0 + 6 + (n % 3) * 15, sy, 9, 3);
+          }
+        } else {
+          // a stalk that shoots up, leaves alternating left and right
+          ctx.fillStyle = INK;
+          ctx.fillRect(x0 + 9, top - 3, h.w - 18, hh + 3);
+          ctx.fillStyle = fill;
+          ctx.fillRect(x0 + 12, top, h.w - 24, hh);
+          ctx.fillStyle = shade;
+          ctx.fillRect(x0 + h.w - 21, top, 9, hh);
+          for (let ly = y - 21, n = 0; ly >= top + 3; ly -= 24, n++) {
+            const lx = n % 2 ? x0 + h.w - 12 : x0 - 3;
+            ctx.fillStyle = INK;
+            ctx.fillRect(lx, ly - 3, 15, 15);
+            ctx.fillStyle = accent;
+            ctx.fillRect(lx + 3, ly, 9, 9);
+          }
+          ctx.fillStyle = accent;
+          ctx.fillRect(x0 + 18, top, h.w - 36, 6);
+        }
+        if (h.warn) g.bubble(h.warn, cx, top - 12);
+        break;
+      }
+      case 'canopy': {
+        const under = y - CANOPY_CLEARANCE;
+        const top = under - 18;
+        const x0 = Math.round(h.x);
+        const x1 = Math.round(h.x + h.w);
+        // two tall poles
+        ctx.fillStyle = INK;
+        ctx.fillRect(x0 - 9, top - 6, 9, y - top + 6);
+        ctx.fillRect(x1, top - 6, 9, y - top + 6);
+        ctx.fillStyle = '#8a8fa3';
+        ctx.fillRect(x0 - 6, top - 3, 3, y - top + 3);
+        ctx.fillRect(x1 + 3, top - 3, 3, y - top + 3);
+        if (theme.canopyStyle === 'glass') {
+          ctx.fillStyle = INK;
+          ctx.fillRect(x0, top - 3, x1 - x0, 24);
+          ctx.fillStyle = '#bfe4ff';
+          ctx.fillRect(x0, top, x1 - x0, 18);
+          ctx.fillStyle = '#ffffff';
+          for (let px = x0 + 12; px < x1 - 30; px += 66) {
+            ctx.fillRect(px, top + 3, 18, 3);
+            ctx.fillRect(px + 6, top + 9, 9, 3);
+          }
+        } else {
+          // a line of bunting: the flags hang exactly where a double jump would put your head
+          ctx.fillStyle = INK;
+          ctx.fillRect(x0, top, x1 - x0, 3);
+          const flags = ['#e5484d', '#ffd166', '#5fbf5a', '#5fb3ff', '#f4a0b5'];
+          for (let px = x0 + 6, n = 0; px < x1 - 18; px += 27, n++) {
+            ctx.fillStyle = flags[n % flags.length];
+            ctx.fillRect(px, top + 3, 18, 6);
+            ctx.fillRect(px + 3, top + 9, 12, 6);
+            ctx.fillRect(px + 6, top + 15, 6, 3);
+          }
+        }
+        g.text(theme.text.canopy, (x0 + x1) / 2, top - 18, { size: 8, color: '#fff', shadow: INK });
+        break;
+      }
+      case 'boomerang': {
+        if (h.state !== 'out' && h.state !== 'back') break;
+        const spin = state.reducedMotion ? 0.4 : state.t * 14;
+        const by = h.state === 'out' ? h.y - 12 : y - 12;
+        sp.draw(A('boomerang'), cx, by, { rot: spin, anchor: 'c' });
+        if (h.state === 'out') {
+          // shadow on the ground marks the no-jump moment
+          ctx.fillStyle = 'rgba(0,0,0,0.18)';
+          ctx.fillRect(Math.round(cx) - 18, y - 3, 36, 4);
+        } else {
+          ctx.fillStyle = 'rgba(141,90,43,0.35)';
+          for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(h.x - 12 - i * 15), y - 6 - (i % 2) * 6, 12, 6);
+        }
+        if (h.warn) g.bubble(h.warn, cx, by - 24);
+        break;
+      }
       case 'pig': {
         if (h.state !== 'active' && h.state !== 'done') break;
         const bob = Math.abs(Math.sin(state.t * 24)) * 4;
@@ -639,12 +530,84 @@ export function createRenderer(canvas, images, pixelSprites) {
     });
   }
 
-  // Edge indicator for a pig that is still off-screen behind the player.
-  function drawOffscreenPig(state) {
-    const pig = state.hazards.find((h) => h.type === 'pig' && h.state === 'active');
-    if (!pig || pig.x + pig.w > state.camera.x) return;
-    g.panel(12, GROUND_Y - 96, 150, 48, 'panelDark');
-    g.text(theme.text.pigMarker, 87, GROUND_Y - 72, { size: 12, color: '#fff' });
+  // Edge indicator for a chaser that is still off-screen behind the player (pig, returning boomerang).
+  function drawOffscreenChaser(state) {
+    const left = state.camera.x + W / 2 - VW / 2;
+    const chaser = state.hazards.find((h) => ((h.type === 'pig' && h.state === 'active') || (h.type === 'boomerang' && h.state === 'back')) && h.x + h.w <= left);
+    if (!chaser) return;
+    const label = chaser.type === 'pig' ? theme.text.pigMarker : theme.text.boomMarker;
+    ctx.font = `12px ${FONT}`;
+    const w = Math.max(150, Math.ceil((ctx.measureText(label).width + 36) / 3) * 3);
+    g.panel(12, GROUND_Y - 96, w, 48, 'panelDark');
+    g.text(label, 12 + w / 2, GROUND_Y - 72, { size: 12, color: '#fff' });
+  }
+
+  // 'popup' stretches: the view ahead is covered. The player and the ground just ahead stay visible.
+  const POPUP_SLOTS = [[0.46, 0.22], [0.68, 0.36], [0.5, 0.54], [0.78, 0.18], [0.62, 0.7], [0.84, 0.52], [0.54, 0.8]];
+  function drawPopup(state) {
+    const { k, id } = state.popup;
+    const calm = state.reducedMotion;
+    const alpha = Math.min(1, k * 10) * (k > 0.92 ? Math.max(0, (1 - k) / 0.08) : 1);
+    ctx.save();
+    if (theme.popupStyle === 'windows' && theme.text.popups.length) {
+      const items = theme.text.popups;
+      const shown = Math.min(POPUP_SLOTS.length, 1 + Math.floor(k * 10));
+      const w = Math.min(246, snap(VW * 0.4));
+      const hh = 96;
+      ctx.globalAlpha = alpha;
+      for (let n = 0; n < shown; n++) {
+        const [px, py] = POPUP_SLOTS[n];
+        const age = k - n / 10;
+        const slide = calm ? 0 : snap(Math.max(0, 1 - age * 14) * 36);
+        const x = snap(VW * px - w / 2);
+        const yy = snap(H * py - hh / 2) - slide;
+        const [title, line] = items[(n + Math.abs(Math.round(id))) % items.length];
+        g.panel(x, yy, w, hh, 'panelBeige');
+        g.panel(x, yy, w, 36, 'panelDark');
+        g.text(title, x + 15, yy + 19, { size: 8, color: '#fff', align: 'left' });
+        g.text('x', x + w - 18, yy + 18, { size: 8, color: '#fff' });
+        g.text(line, x + w / 2, yy + 54, { size: 8 });
+        ctx.fillStyle = INK;
+        ctx.fillRect(x + w / 2 - 33, yy + 66, 66, 21);
+        ctx.fillStyle = '#ffd166';
+        ctx.fillRect(x + w / 2 - 30, yy + 69, 60, 15);
+        g.text('OK', x + w / 2, yy + 77, { size: 8 });
+      }
+    } else {
+      // a bank of fog rolling over the right-hand side of the view
+      ctx.globalAlpha = 0.94 * alpha;
+      for (let r = 0; r < 7; r++) {
+        const yy = 90 + r * 51;
+        const drift = calm ? 0 : snap(Math.sin(state.t * 0.7 + r * 1.3) * 18);
+        for (let x = snap(VW * 0.36) + (r % 2) * 30; x < VW + 60; x += 108) {
+          ctx.fillStyle = '#e8e8f0';
+          ctx.fillRect(x + drift + 12, yy + 36, 84, 12);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(x + drift, yy, 126, 39);
+          ctx.fillRect(x + drift + 18, yy - 12, 66, 12);
+        }
+      }
+    }
+    ctx.globalAlpha = alpha;
+    g.text(theme.text.fog, VW / 2, 60, { size: 10, color: '#fff', shadow: INK });
+    ctx.restore();
+  }
+
+  // Name of the 25 m stretch you just entered.
+  function drawStretchBanner(state) {
+    const st = state.stretch;
+    const name = theme.scene.stretches[st.i]?.name;
+    if (!name || st.t > 2.2) return;
+    const slide = state.reducedMotion ? 0 : snap(Math.max(0, 1 - st.t / 0.25) * 150);
+    ctx.save();
+    ctx.globalAlpha = st.t > 1.8 ? Math.max(0, (2.2 - st.t) / 0.4) : 1;
+    ctx.font = `12px ${FONT}`;
+    const w = Math.ceil((ctx.measureText(name).width + 48) / 3) * 3;
+    const x = snap(VW / 2 - w / 2) + slide;
+    const yy = VW >= 700 ? 126 : 162;
+    g.panel(x, yy, w, 42, 'panelDark');
+    g.text(name, x + w / 2, yy + 22, { size: 12, color: '#ffd166' });
+    ctx.restore();
   }
 
   function drawBlackout(state) {
@@ -729,36 +692,41 @@ export function createRenderer(canvas, images, pixelSprites) {
     const flip = p.facing === -1;
     const x = p.x;
     const y = p.y + 2;
+    const hero = A('hero');
     switch (p.pose) {
       case 'run': {
         const frame = Math.floor(t * 10) % 2;
-        if (state.slide > 0) sp.draw('hero', x, y - 30, { frame: 1, flip, rot: -0.5, anchor: 'c' });
-        else sp.draw('hero', x, y, { frame, flip });
+        if (state.slide > 0) sp.draw(hero, x, y - 30, { frame: 1, flip, rot: -0.5, anchor: 'c' });
+        else sp.draw(hero, x, y, { frame, flip });
         break;
       }
       case 'jump':
-        sp.draw('hero', x, y, { frame: 1, flip });
+        sp.draw(hero, x, y, { frame: 1, flip });
         break;
       case 'flip':
-        sp.draw('hero', x, y - 36, { frame: 1, flip, rot: (flip ? -1 : 1) * p.airT * 14, anchor: 'c' });
+        // afterimage of the spin (motion effect: skipped with reduced motion)
+        if (!state.reducedMotion && state.phase === PHASE.RUNNING) {
+          for (const k of [2, 1]) sp.draw(hero, x - state.speed * 0.04 * k, y - 36 - p.vy * 0.04 * k, { frame: 1, flip, rot: (flip ? -1 : 1) * (p.airT - 0.04 * k) * 14, anchor: 'c', alpha: 0.14 * (3 - k) });
+        }
+        sp.draw(hero, x, y - 36, { frame: 1, flip, rot: (flip ? -1 : 1) * p.airT * 14, anchor: 'c' });
         break;
       case 'fall':
       case 'slip':
-        sp.draw('hero', x, y - 18, { frame: 0, rot: p.pose === 'slip' ? -1.9 : 1.6, anchor: 'c' });
+        sp.draw(hero, x, y - 18, { frame: 0, rot: p.pose === 'slip' ? -1.9 : 1.6, anchor: 'c' });
         break;
       case 'sad':
-        sp.draw('hero', x, y + 6, { frame: 0, flip });
+        sp.draw(hero, x, y + 6, { frame: 0, flip });
         ctx.fillStyle = '#5fb3ff';
         ctx.fillRect(Math.round(x) + 21, Math.round(y) - 66 + Math.floor((t * 6) % 3) * 3, 3, 6);
         break;
       case 'cheer':
-        sp.draw('hero', x, y - Math.abs(Math.sin(t * 8)) * 18, { frame: 1, flip });
+        sp.draw(hero, x, y - Math.abs(Math.sin(t * 8)) * 18, { frame: 1, flip });
         break;
       case 'float':
-        sp.draw('hero', x, y - 36, { frame: 1, rot: Math.sin(t) * 0.6, anchor: 'c' });
+        sp.draw(hero, x, y - 36, { frame: 1, rot: Math.sin(t) * 0.6, anchor: 'c' });
         break;
       default:
-        sp.draw('hero', x, y, { frame: 0, flip });
+        sp.draw(hero, x, y, { frame: 0, flip });
     }
     g.bubble(p.say, x, y - 74);
   }
@@ -865,7 +833,7 @@ export function createRenderer(canvas, images, pixelSprites) {
     g.panel(rx, ry, 306, 66, 'panelBeige');
     g.text(`TRY ${hud.attempts}  WINS ${hud.wins ?? 0}`, rx + 18, ry + 22, { size: 10, align: 'left' });
     g.text(hud.bestM != null ? `BEST ${hud.bestM.toFixed(1)} m` : `BEST ${hud.best.toFixed(1)}%`, rx + 288, ry + 22, { size: 10, align: 'right' });
-    g.text(`${hud.muted ? 'MUTED' : 'SOUND ON'}  v7`, rx + 288, ry + 46, { size: 8, align: 'right', color: '#6b6f80' });
+    g.text(`${hud.muted ? 'MUTED' : 'SOUND ON'}  v8`, rx + 288, ry + 46, { size: 8, align: 'right', color: '#6b6f80' });
   }
 
   // cssW/cssH: on-screen size of the canvas; the backing store matches device pixels so art stays crisp.
